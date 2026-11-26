@@ -1,10 +1,32 @@
 // Zero-dependency pure-Node streaming .tar.gz / POSIX ustar + pax parser and deterministic builder.
 // Enforces hard security boundaries: rejects `..` path traversal, absolute paths, NUL bytes,
-// symlinks ('2'), hardlinks ('1'), device nodes, and >100 MB decompression bombs.
+// symlinks ('2'), hardlinks ('1'), and device nodes (no artificial 100 MB archive size limit).
 
 import { createHash } from 'node:crypto';
-import { gunzipSync, gzipSync } from 'node:zlib';
+import { Readable, Transform } from 'node:stream';
+import { createGunzip, gunzipSync, gzipSync } from 'node:zlib';
 import { MAX_TARBALL_BYTES } from './constants.mjs';
+
+export const MAX_RETAINED_BINARY_ASSET_BYTES = 4 * 1024 * 1024; // 4 MB
+const RETAINED_TEXT_OR_CODE_EXT_RE =
+  /\.(?:json|jsonc|md|markdown|yml|yaml|mjs|cjs|js|ts|tsx|jsx|py|sh|ps1|cmd|bat|go|rs|txt)$/i;
+const RETAINED_SPECIAL_BASENAME_RE =
+  /^(?:plugin\.json|agy-market\.json|package\.json|mcp_config\.json|hooks\.json|sidecars\.json|sidecar\.json|skill\.md|readme.*|license.*|copying.*)$/i;
+
+/**
+ * Determines whether an archive entry's full Buffer payload needs to be retained in memory
+ * for manifest/README/script/icon/rule static inspection, or can be omitted (>4 MB binary assets).
+ */
+export function shouldRetainArchiveEntryBuffer(relPath, byteSize) {
+  if (!Number.isFinite(byteSize) || byteSize <= MAX_RETAINED_BINARY_ASSET_BYTES) {
+    return true;
+  }
+  const norm = String(relPath || '').replace(/\\/g, '/');
+  const base = norm.split('/').pop() || '';
+  if (RETAINED_SPECIAL_BASENAME_RE.test(base)) return true;
+  if (RETAINED_TEXT_OR_CODE_EXT_RE.test(norm)) return true;
+  return false;
+}
 
 function readCleanString(buf, start, length) {
   const sub = buf.subarray(start, start + length);
@@ -73,142 +95,222 @@ export function validateSafeArchivePath(rawPath) {
   return cleanSegments.join('/');
 }
 
-/**
- * Inspect a .tar.gz / .tgz buffer in memory without writing to disk or executing anything.
- * Returns `{ sha256, compressedBytes, uncompressedBytes, files: Map<string, Buffer>, rawPaths: string[] }`.
- */
-export function inspectTarGzBuffer(
-  compressedBuf,
-  {
-    maxCompressedBytes = MAX_TARBALL_BYTES,
-    maxUncompressedBytes = MAX_TARBALL_BYTES,
-    stripSingleTopDir = true,
-    allowExternalSymlinks = false,
-  } = {},
-) {
-  if (!Buffer.isBuffer(compressedBuf)) {
-    throw new Error('ERR_TAR_INPUT: Expected Buffer');
-  }
-  if (compressedBuf.length === 0) {
-    throw new Error('ERR_TAR_EMPTY: Empty archive');
-  }
-  if (compressedBuf.length > maxCompressedBytes) {
-    throw new Error(`ERR_TAR_TOO_LARGE: Compressed size ${compressedBuf.length} exceeds ${maxCompressedBytes}`);
-  }
-
-  const sha256 = createHash('sha256').update(compressedBuf).digest('hex');
-  let tarBuf;
-  try {
-    tarBuf = gunzipSync(compressedBuf, { maxOutputLength: maxUncompressedBytes });
-  } catch (err) {
-    if (/Cannot create a Buffer|maxOutputLength|ERR_BUFFER_TOO_LARGE/i.test(String(err?.message))) {
-      throw new Error(`ERR_TAR_DECOMPRESS_LIMIT: Uncompressed size exceeds ${maxUncompressedBytes}`);
-    }
-    throw new Error(`ERR_TAR_GZIP_INVALID: ${err?.message || String(err)}`);
-  }
-
+function createTarEntryAccumulator({ allowExternalSymlinks = false } = {}) {
   const rawFiles = new Map();
+  const rawFileSizes = new Map();
   const rawSymlinks = [];
-  let offset = 0;
+  const omittedBinaryPaths = [];
+
   let nextPax = {};
   let globalPax = {};
   let nextLongName = '';
   let nextLongLink = '';
+  let uncompressedBytes = 0;
 
-  while (offset + 512 <= tarBuf.length) {
-    const header = tarBuf.subarray(offset, offset + 512);
-    offset += 512;
+  const headerBuf = Buffer.alloc(512);
+  let headerFilled = 0;
+  let mode = 'HEADER';
+  let entryType = 'skip';
+  let entryPath = '';
+  let entrySize = 0;
+  let retainContent = false;
+  let entryChunks = [];
+  let remaining = 0;
+  let paddingRemaining = 0;
 
-    // Two consecutive zero blocks mark end-of-archive
+  function finalizeEntry() {
+    if (entryType === 'skip') {
+      entryChunks = [];
+      return;
+    }
+    const payload =
+      retainContent && entryChunks.length > 0
+        ? entryChunks.length === 1
+          ? entryChunks[0]
+          : Buffer.concat(entryChunks, entrySize)
+        : Buffer.alloc(0);
+    entryChunks = [];
+
+    if (entryType === 'pax') {
+      nextPax = parsePaxRecords(payload);
+    } else if (entryType === 'global_pax') {
+      globalPax = { ...globalPax, ...parsePaxRecords(payload) };
+    } else if (entryType === 'long_name') {
+      nextLongName = readCleanString(payload, 0, payload.length);
+    } else if (entryType === 'long_link') {
+      nextLongLink = readCleanString(payload, 0, payload.length);
+    } else if (entryType === 'file') {
+      rawFiles.set(entryPath, payload);
+      rawFileSizes.set(entryPath, entrySize);
+      if (!retainContent && entrySize > 0) {
+        omittedBinaryPaths.push(entryPath);
+      }
+    }
+  }
+
+  function processHeader() {
     let allZero = true;
     for (let i = 0; i < 512; i++) {
-      if (header[i] !== 0) {
+      if (headerBuf[i] !== 0) {
         allZero = false;
         break;
       }
     }
-    if (allZero) continue;
+    if (allZero) return;
 
-    const namePart = readCleanString(header, 0, 100);
-    const prefixPart = readCleanString(header, 345, 155);
-    const linkNamePart = readCleanString(header, 157, 100);
-    const typeFlagChar = header[156] === 0 ? '0' : String.fromCharCode(header[156]);
-    let size = parseTarOctal(header, 124, 12);
+    const namePart = readCleanString(headerBuf, 0, 100);
+    const prefixPart = readCleanString(headerBuf, 345, 155);
+    const linkNamePart = readCleanString(headerBuf, 157, 100);
+    const typeFlagChar = headerBuf[156] === 0 ? '0' : String.fromCharCode(headerBuf[156]);
+    let size = parseTarOctal(headerBuf, 124, 12);
     if (nextPax.size !== undefined) {
       size = Number(nextPax.size);
     }
-
-    if (offset + size > tarBuf.length) {
-      throw new Error('ERR_TAR_TRUNCATED: Unexpected EOF inside tar entry payload');
+    if (!Number.isFinite(size) || size < 0) {
+      throw new Error(`ERR_TAR_CORRUPT: Invalid tar entry size "${size}"`);
     }
 
-    const payload = tarBuf.subarray(offset, offset + size);
-    const blocks = Math.ceil(size / 512);
-    offset += blocks * 512;
+    entrySize = size;
+    remaining = size;
+    paddingRemaining = (512 - (size % 512)) % 512;
+    entryChunks = [];
+    entryPath = '';
 
-    // PAX extended headers
     if (typeFlagChar === 'x' || typeFlagChar === 'X') {
-      nextPax = parsePaxRecords(payload);
-      continue;
-    }
-    if (typeFlagChar === 'g') {
-      globalPax = { ...globalPax, ...parsePaxRecords(payload) };
-      continue;
-    }
-    // GNU LongLink path / linktarget overrides
-    if (typeFlagChar === 'L') {
-      nextLongName = readCleanString(payload, 0, payload.length);
-      continue;
-    }
-    if (typeFlagChar === 'K') {
-      nextLongLink = readCleanString(payload, 0, payload.length);
-      continue;
-    }
+      entryType = 'pax';
+      retainContent = true;
+    } else if (typeFlagChar === 'g') {
+      entryType = 'global_pax';
+      retainContent = true;
+    } else if (typeFlagChar === 'L') {
+      entryType = 'long_name';
+      retainContent = true;
+    } else if (typeFlagChar === 'K') {
+      entryType = 'long_link';
+      retainContent = true;
+    } else {
+      const mergedPax = { ...globalPax, ...nextPax };
+      nextPax = {};
 
-    const mergedPax = { ...globalPax, ...nextPax };
-    nextPax = {};
+      const rawEntryName =
+        nextLongName ||
+        mergedPax.path ||
+        (prefixPart ? `${prefixPart}/${namePart}` : namePart);
+      nextLongName = '';
 
-    const rawEntryName =
-      nextLongName ||
-      mergedPax.path ||
-      (prefixPart ? `${prefixPart}/${namePart}` : namePart);
-    nextLongName = '';
+      const rawLinkTarget = nextLongLink || mergedPax.linkpath || linkNamePart || '';
+      nextLongLink = '';
 
-    const rawLinkTarget = nextLongLink || mergedPax.linkpath || linkNamePart || '';
-    nextLongLink = '';
-
-    // Hard-block symlinks & hardlinks unless caller explicitly requests scoped external-symlink collection
-    if (typeFlagChar === '1' || typeFlagChar === '2') {
-      if (!allowExternalSymlinks) {
-        throw new Error(`ERR_TAR_SYMLINK_FORBIDDEN: Archive entry "${rawEntryName}" is a link (typeflag=${typeFlagChar})`);
+      // Hard-block symlinks & hardlinks unless caller explicitly requests scoped external-symlink collection
+      if (typeFlagChar === '1' || typeFlagChar === '2') {
+        if (!allowExternalSymlinks) {
+          throw new Error(`ERR_TAR_SYMLINK_FORBIDDEN: Archive entry "${rawEntryName}" is a link (typeflag=${typeFlagChar})`);
+        }
+        const safeLinkPath = validateSafeArchivePath(rawEntryName);
+        if (safeLinkPath) {
+          rawSymlinks.push({
+            path: safeLinkPath,
+            target: rawLinkTarget,
+            typeflag: typeFlagChar,
+          });
+        }
+        entryType = 'skip';
+        retainContent = false;
+      } else if (typeFlagChar !== '0' && typeFlagChar !== '5') {
+        throw new Error(`ERR_TAR_UNSUPPORTED_TYPE: Archive entry "${rawEntryName}" has disallowed typeflag "${typeFlagChar}"`);
+      } else {
+        const safePath = validateSafeArchivePath(rawEntryName);
+        if (!safePath || typeFlagChar === '5' || rawEntryName.endsWith('/')) {
+          entryType = 'skip';
+          retainContent = false;
+        } else {
+          entryType = 'file';
+          entryPath = safePath;
+          retainContent = shouldRetainArchiveEntryBuffer(safePath, size);
+        }
       }
-      const safeLinkPath = validateSafeArchivePath(rawEntryName);
-      if (safeLinkPath) {
-        rawSymlinks.push({
-          path: safeLinkPath,
-          target: rawLinkTarget,
-          typeflag: typeFlagChar,
-        });
-      }
-      continue;
-    }
-    if (typeFlagChar !== '0' && typeFlagChar !== '5') {
-      throw new Error(`ERR_TAR_UNSUPPORTED_TYPE: Archive entry "${rawEntryName}" has disallowed typeflag "${typeFlagChar}"`);
     }
 
-    const safePath = validateSafeArchivePath(rawEntryName);
-    if (!safePath || typeFlagChar === '5' || rawEntryName.endsWith('/')) {
-      continue; // directory entry
+    if (remaining > 0) {
+      mode = 'PAYLOAD';
+    } else {
+      finalizeEntry();
+      mode = paddingRemaining > 0 ? 'PADDING' : 'HEADER';
     }
-
-    rawFiles.set(safePath, Buffer.from(payload));
   }
 
+  return {
+    get uncompressedBytes() {
+      return uncompressedBytes;
+    },
+    push(chunk) {
+      if (!chunk || chunk.length === 0) return;
+      uncompressedBytes += chunk.length;
+      let pos = 0;
+      while (pos < chunk.length) {
+        if (mode === 'HEADER') {
+          const take = Math.min(512 - headerFilled, chunk.length - pos);
+          chunk.copy(headerBuf, headerFilled, pos, pos + take);
+          headerFilled += take;
+          pos += take;
+          if (headerFilled === 512) {
+            headerFilled = 0;
+            processHeader();
+          }
+        } else if (mode === 'PAYLOAD') {
+          const take = Math.min(remaining, chunk.length - pos);
+          if (retainContent) {
+            entryChunks.push(Buffer.from(chunk.subarray(pos, pos + take)));
+          }
+          remaining -= take;
+          pos += take;
+          if (remaining === 0) {
+            finalizeEntry();
+            mode = paddingRemaining > 0 ? 'PADDING' : 'HEADER';
+          }
+        } else if (mode === 'PADDING') {
+          const skip = Math.min(paddingRemaining, chunk.length - pos);
+          paddingRemaining -= skip;
+          pos += skip;
+          if (paddingRemaining === 0) {
+            mode = 'HEADER';
+          }
+        }
+      }
+    },
+    finish() {
+      if (mode === 'PAYLOAD' && remaining > 0) {
+        throw new Error('ERR_TAR_TRUNCATED: Unexpected EOF inside tar entry payload');
+      }
+      return {
+        uncompressedBytes,
+        rawFiles,
+        rawFileSizes,
+        rawSymlinks,
+        omittedBinaryPaths,
+      };
+    },
+  };
+}
+
+function finalizeTarInspection({
+  sha256,
+  compressedBytes,
+  uncompressedBytes,
+  rawFiles,
+  rawFileSizes,
+  rawSymlinks,
+  omittedBinaryPaths,
+  stripSingleTopDir = true,
+}) {
   // Normalize optional single top-level wrapper folder (e.g. `package/plugin.json` or `my-plugin-1.0.0/plugin.json`)
   // ONLY when `plugin.json` is not already at the archive root.
   let files = rawFiles;
+  let fileSizes = rawFileSizes;
   let symlinkPaths = rawSymlinks;
+  let finalOmittedPaths = omittedBinaryPaths;
   let strippedRoot = '';
+
   if (stripSingleTopDir && !rawFiles.has('plugin.json') && rawFiles.size > 0) {
     const firstSegments = new Set();
     let allNested = true;
@@ -233,27 +335,185 @@ export function inspectTarGzBuffer(
     if (allNested && firstSegments.size === 1) {
       const [onlyRoot] = firstSegments;
       strippedRoot = onlyRoot;
-      files = new Map();
-      for (const [p, buf] of rawFiles.entries()) {
-        files.set(p.slice(onlyRoot.length + 1), buf);
-      }
       const rootPrefix = `${onlyRoot}/`;
+      files = new Map();
+      fileSizes = new Map();
+      for (const [p, buf] of rawFiles.entries()) {
+        const strippedPath = p.slice(rootPrefix.length);
+        files.set(strippedPath, buf);
+        fileSizes.set(strippedPath, rawFileSizes.get(p) ?? buf.length);
+      }
       symlinkPaths = rawSymlinks.map((s) => ({
         ...s,
         path: s.path.startsWith(rootPrefix) ? s.path.slice(rootPrefix.length) : s.path,
       }));
+      finalOmittedPaths = omittedBinaryPaths.map((p) =>
+        p.startsWith(rootPrefix) ? p.slice(rootPrefix.length) : p,
+      );
     }
   }
 
   return {
     sha256,
-    compressedBytes: compressedBuf.length,
-    uncompressedBytes: tarBuf.length,
+    compressedBytes,
+    uncompressedBytes,
     strippedRoot,
     files,
+    fileSizes,
+    omittedBinaryPaths: finalOmittedPaths,
     symlinkPaths,
     rawPaths: [...rawFiles.keys()],
   };
+}
+
+function* iterBufferChunks(buf, chunkSize = 64 * 1024) {
+  for (let off = 0; off < buf.length; off += chunkSize) {
+    yield buf.subarray(off, Math.min(buf.length, off + chunkSize));
+  }
+}
+
+/**
+ * Inspect a .tar.gz / .tgz buffer in memory without writing to disk or executing anything.
+ * Enforces size caps ONLY when caller passes a finite positive limit (`> 0`).
+ * Never passes `Infinity` or `0` to `gunzipSync({ maxOutputLength })` (Node 24 throws `ERR_OUT_OF_RANGE`).
+ * Omits large (>4 MB) non-text binary asset Buffers from memory while preserving `fileSizes` metadata.
+ */
+export function inspectTarGzBuffer(
+  compressedBuf,
+  {
+    maxCompressedBytes = MAX_TARBALL_BYTES,
+    maxUncompressedBytes = MAX_TARBALL_BYTES,
+    stripSingleTopDir = true,
+    allowExternalSymlinks = false,
+  } = {},
+) {
+  if (!Buffer.isBuffer(compressedBuf)) {
+    throw new Error('ERR_TAR_INPUT: Expected Buffer');
+  }
+  if (compressedBuf.length === 0) {
+    throw new Error('ERR_TAR_EMPTY: Empty archive');
+  }
+  const hasCompressedLimit = Number.isFinite(maxCompressedBytes) && maxCompressedBytes > 0;
+  if (hasCompressedLimit && compressedBuf.length > maxCompressedBytes) {
+    throw new Error(`ERR_TAR_TOO_LARGE: Compressed size ${compressedBuf.length} exceeds ${maxCompressedBytes}`);
+  }
+
+  const hasUncompressedLimit = Number.isFinite(maxUncompressedBytes) && maxUncompressedBytes > 0;
+  const sha256 = createHash('sha256').update(compressedBuf).digest('hex');
+  let tarBuf;
+  try {
+    tarBuf = gunzipSync(
+      compressedBuf,
+      hasUncompressedLimit ? { maxOutputLength: maxUncompressedBytes } : undefined,
+    );
+  } catch (err) {
+    if (hasUncompressedLimit && /Cannot create a Buffer|maxOutputLength|ERR_BUFFER_TOO_LARGE/i.test(String(err?.message))) {
+      throw new Error(`ERR_TAR_DECOMPRESS_LIMIT: Uncompressed size exceeds ${maxUncompressedBytes}`);
+    }
+    throw new Error(`ERR_TAR_GZIP_INVALID: ${err?.message || String(err)}`);
+  }
+
+  const parser = createTarEntryAccumulator({ allowExternalSymlinks });
+  parser.push(tarBuf);
+  const parsed = parser.finish();
+  return finalizeTarInspection({
+    sha256,
+    compressedBytes: compressedBuf.length,
+    ...parsed,
+    stripSingleTopDir,
+  });
+}
+
+/**
+ * Asynchronous streaming `.tar.gz` / `.tgz` inspector using `zlib.createGunzip()`.
+ * Avoids materializing a full uncompressed tar Buffer in RAM so multi-hundred-MB / GB+ plugins
+ * can be validated in bounded memory.
+ */
+export async function inspectTarGzStream(
+  source,
+  {
+    maxCompressedBytes = MAX_TARBALL_BYTES,
+    maxUncompressedBytes = MAX_TARBALL_BYTES,
+    stripSingleTopDir = true,
+    allowExternalSymlinks = false,
+  } = {},
+) {
+  const hasCompressedLimit = Number.isFinite(maxCompressedBytes) && maxCompressedBytes > 0;
+  const hasUncompressedLimit = Number.isFinite(maxUncompressedBytes) && maxUncompressedBytes > 0;
+
+  let sourceStream;
+  if (Buffer.isBuffer(source) || source instanceof Uint8Array) {
+    const buf = Buffer.isBuffer(source) ? source : Buffer.from(source.buffer, source.byteOffset, source.byteLength);
+    if (buf.length === 0) {
+      throw new Error('ERR_TAR_EMPTY: Empty archive');
+    }
+    if (hasCompressedLimit && buf.length > maxCompressedBytes) {
+      throw new Error(`ERR_TAR_TOO_LARGE: Compressed size ${buf.length} exceeds ${maxCompressedBytes}`);
+    }
+    sourceStream = Readable.from(iterBufferChunks(buf));
+  } else if (source && typeof source.getReader === 'function') {
+    sourceStream = Readable.fromWeb(source);
+  } else if (source && typeof source.pipe === 'function') {
+    sourceStream = source;
+  } else {
+    throw new Error('ERR_TAR_INPUT: Expected Buffer, Uint8Array, Readable, or ReadableStream');
+  }
+
+  const hash = createHash('sha256');
+  let compressedBytes = 0;
+
+  const counterTransform = new Transform({
+    transform(chunk, _enc, cb) {
+      compressedBytes += chunk.length;
+      if (hasCompressedLimit && compressedBytes > maxCompressedBytes) {
+        cb(new Error(`ERR_TAR_TOO_LARGE: Compressed size ${compressedBytes} exceeds ${maxCompressedBytes}`));
+        return;
+      }
+      hash.update(chunk);
+      cb(null, chunk);
+    },
+  });
+
+  const gunzip = createGunzip();
+  const parser = createTarEntryAccumulator({ allowExternalSymlinks });
+
+  sourceStream.on('error', (err) => gunzip.destroy(err));
+  counterTransform.on('error', (err) => gunzip.destroy(err));
+  sourceStream.pipe(counterTransform).pipe(gunzip);
+
+  try {
+    for await (const decompChunk of gunzip) {
+      if (hasUncompressedLimit && parser.uncompressedBytes + decompChunk.length > maxUncompressedBytes) {
+        throw new Error(`ERR_TAR_DECOMPRESS_LIMIT: Uncompressed size exceeds ${maxUncompressedBytes}`);
+      }
+      parser.push(decompChunk);
+    }
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (msg.startsWith('ERR_TAR_')) {
+      throw err;
+    }
+    if (hasUncompressedLimit && /Cannot create a Buffer|maxOutputLength|ERR_BUFFER_TOO_LARGE/i.test(msg)) {
+      throw new Error(`ERR_TAR_DECOMPRESS_LIMIT: Uncompressed size exceeds ${maxUncompressedBytes}`);
+    }
+    throw new Error(`ERR_TAR_GZIP_INVALID: ${msg}`);
+  } finally {
+    if (typeof sourceStream.destroy === 'function') sourceStream.destroy();
+    counterTransform.destroy();
+    gunzip.destroy();
+  }
+
+  if (compressedBytes === 0) {
+    throw new Error('ERR_TAR_EMPTY: Empty archive');
+  }
+
+  const parsed = parser.finish();
+  return finalizeTarInspection({
+    sha256: hash.digest('hex'),
+    compressedBytes,
+    ...parsed,
+    stripSingleTopDir,
+  });
 }
 
 function writeOctalField(buf, strVal, offset, length) {

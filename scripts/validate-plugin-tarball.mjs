@@ -160,6 +160,22 @@ export function extractPluginRootFiles(allFilesMap, pluginRoot = '.') {
   return scoped;
 }
 
+function extractPluginRootFileSizes(allFileSizesMap, pluginRoot = '.') {
+  if (!allFileSizesMap || typeof allFileSizesMap.entries !== 'function') return null;
+  const normRoot = normalizeRelPosix(pluginRoot);
+  if (normRoot === '.') {
+    return new Map(allFileSizesMap);
+  }
+  const prefix = `${normRoot}/`;
+  const scoped = new Map();
+  for (const [p, sz] of allFileSizesMap.entries()) {
+    if (p.startsWith(prefix)) {
+      scoped.set(p.slice(prefix.length), sz);
+    }
+  }
+  return scoped;
+}
+
 function normalizeLenientPluginName(raw) {
   return String(raw || '')
     .trim()
@@ -834,6 +850,7 @@ export function validatePluginTarball(
     inspectTarGzBuffer(compressedBuf, { allowExternalSymlinks: Boolean(allowExternalSymlinks) });
   const { hasExternalSymlinks } = enforceScopedSymlinkSafety(tarInfo, normRoot);
   const scopedFiles = extractPluginRootFiles(tarInfo.files, normRoot);
+  const scopedFileSizes = extractPluginRootFileSizes(tarInfo.fileSizes, normRoot);
 
   const manifestPath = scopedFiles.has('plugin.json')
     ? 'plugin.json'
@@ -869,16 +886,25 @@ export function validatePluginTarball(
   let iconArtifact = null;
   if (manifest.logo) {
     const logoRel = normalizeRelPosix(manifest.logo);
-    const logoBuf =
-      scopedFiles.get(logoRel) ||
-      (manifestPath === '.antigravity-plugin/plugin.json' ? scopedFiles.get(`.antigravity-plugin/${logoRel}`) : null) ||
-      null;
+    const logoResolvedRel = scopedFiles.has(logoRel)
+      ? logoRel
+      : manifestPath === '.antigravity-plugin/plugin.json' && scopedFiles.has(`.antigravity-plugin/${logoRel}`)
+        ? `.antigravity-plugin/${logoRel}`
+        : logoRel;
+    const logoBuf = scopedFiles.get(logoResolvedRel) || null;
+    const trueLogoBytes = scopedFileSizes?.get(logoResolvedRel) ?? (logoBuf ? logoBuf.length : 0);
     if (!logoBuf) {
       if (lenientManifest) {
         delete manifest.logo;
       } else {
         throw new Error(`ERR_MISSING_LOGO_FILE: plugin.json.logo "${manifest.logo}" does not exist in tarball`);
       }
+    } else if (logoBuf.length === 0 && trueLogoBytes > 2 * 1024 * 1024) {
+      if (!lenientManifest) {
+        throw new Error(`ERR_ICON_TOO_LARGE: Logo exceeds 2 MB (${trueLogoBytes} bytes)`);
+      }
+      iconArtifact = null;
+      delete manifest.logo;
     } else {
       try {
         iconArtifact = normalizeIconBuffer(logoBuf, logoRel);
@@ -1001,6 +1027,7 @@ export function validatePluginTarball(
     description: manifest.description,
     capabilities,
     readmeMarkdown,
+    fileSizes: scopedFileSizes,
   });
 
   return {
@@ -1023,5 +1050,6 @@ export function validatePluginTarball(
     fingerprint,
     skillDescriptions: components.skillDescriptions || [],
     scopedFiles,
+    scopedFileSizes,
   };
 }

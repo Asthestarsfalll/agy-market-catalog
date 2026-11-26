@@ -183,7 +183,7 @@ gh release create v1.0.0 my-agy-plugin.tar.gz --title "v1.0.0" --notes "Initial 
 - **零构建直出方式（纯 Markdown 或已提交预构建产物的仓库）**：如果未上传 `.tar.gz` 资产（或只推了正式 SemVer Tag `v1.0.0`），目录门禁与同步器也会自动回退使用 GitHub Tag 源码归档，并自动启用自包含检查（确认归档内无未构建的 Sidebar 入口与未打包的 npm `dependencies`）。
 
 > **⚠️ 两条打包红线（务必留意）**：
-> 1. 压缩包上限 **`100 MB`**（压缩体积与解压体积均受限），**严禁包含符号链接（symlink）、硬链接（hardlink）、绝对路径或 `..` 路径穿越**（Windows 下 Antigravity 会静默跳过符号链接插件，CI 会直接抛出 `ERR_TAR_SYMLINK_FORBIDDEN`）。
+> 1. **严禁包含符号链接（symlink）、硬链接（hardlink）、绝对路径或 `..` 路径穿越**（无人工包体积上限，支持含本地模型/二进制的大体积自包含插件流式校验；Windows 下 Antigravity 会静默跳过符号链接插件，CI 会直接抛出 `ERR_TAR_SYMLINK_FORBIDDEN`）。
 > 2. **已发布的 SemVer Tag 不可变**：被目录锁定后，**切勿**对旧 Tag 执行 `git push --force` 或删除后重传不同内容的同名资产，否则会触发供应链完整性保护 **`TAG_MUTATION_BLOCKED`**。需要修复问题时，直接发一个新小版本（如 `v1.0.1`）即可！
 
 ---
@@ -279,6 +279,7 @@ git push -u origin feat/add-my-agy-plugin
    - **刚建的新仓库未满 24 小时？无需等待再提 PR！** 只要其他全部校验通过，CI 会自动给你的 PR 贴上 **`pending: repo-age`** 标签，并评论告知精确的 **UTC 解锁时间**。你什么都不用做，**`regate.yml`（每 6 小时自动巡检一次）** 会在仓库满 24 小时后自动复审、移除标签并 **自动合并**！
 3. **关于 CDP 与 `app.asar` 宿主界面增强插件的友好政策**：
    - 只要没有触发真实供应链/窃密红线，使用 **Chrome DevTools Protocol（CDP）**（如 `--remote-debugging-port`、`DevToolsActivePort` 毛玻璃与壁纸皮肤）或 **`resources/app.asar` 补丁**（如应用内挂件/观察台）的插件**100% 欢迎收录进 Track 1**，不会因为检测出 CDP/`app.asar` 而被拒绝，系统仅自动标注温和的 `💡 宿主界面增强`（`host-enhancement`）提示徽章。
+   - **`app.asar` 类插件最佳实践**：请在仓库 `README.md` 醒目处写明安装后及每次通过 AGY Market 更新后需执行的补丁脚本命令（例如 `node setup.cjs`）并重启 Antigravity；若插件会在插件目录内保存用户个人配置或自定义素材（例如 `hud_prefs.json`、`assets/custom/**`），务必在伴随清单 `agy-market.json` 的 `preservePaths` 字段中声明保留路径，防止市场更新同步目录时覆盖用户的本地配置与素材。
    - **仅 5 类真实安全红线会被硬拦截**：压缩包 `..` 路径穿越或软/硬链接；已锁定 Tag 篡改；`rules/*.md` 越界 `@[...](..)` 读取插件外本地文件或单文件超过 `24,000` 字节；Markdown 中的不可见 Unicode Tag / Bidi 隐藏注入字符；含 `<!ENTITY>` XXE 或无法清洗脚本的畸形 SVG 图标。
 4. **合并后永久 0-PR 自动同步**：
    - PR 合并后，**`sync-catalog.yml` 每 30 分钟**自动轮询你的仓库：每当你发布新的正式 SemVer Release 或 Tag（例如 `v1.1.0`），系统自动校验、提取新版中文 README 与图标、计算新 `sha256` 并同步发布到 GitHub Pages 与 `@agy-market/catalog` 中国镜像通道——**以后发版彻底告别 PR！**

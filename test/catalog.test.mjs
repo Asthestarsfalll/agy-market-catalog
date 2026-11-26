@@ -14,22 +14,40 @@ import {
   buildTrack2PluginRecordsForArchive,
   crawlExperimentalTopics,
 } from '../scripts/crawl-topics.mjs';
-import { ALLOWED_CATEGORIES, buildSourceArchiveUrl, compareSemver } from '../scripts/lib/constants.mjs';
+import {
+  classifyNegCacheReason,
+  CURRENT_VALIDATOR_VERSION,
+} from '../scripts/lib/adaptive-discovery.mjs';
+import {
+  ALLOWED_CATEGORIES,
+  buildSourceArchiveUrl,
+  compareSemver,
+  MAX_RULE_FILE_BYTES,
+  MAX_TARBALL_BYTES,
+} from '../scripts/lib/constants.mjs';
 import { CURATED_TAXONOMY_OVERRIDES, inferPluginTaxonomy } from '../scripts/lib/taxonomy-classifier.mjs';
 import {
   buildChannelARepoQueries,
   deriveExplicitSubpathFromCodePath,
   discoverPluginRootsInArchive,
+  downloadTarballBuffer,
   extractGitHubCandidatesFromJson,
   extractGitHubCandidatesFromMarkdown,
+  fetchWithLimit,
   loadAggregatorsConfig,
+  MAX_AGGREGATOR_DOC_BYTES,
   parseGitHubAtomLatestUpdated,
   parseGitUploadPackRefs,
   parseSafeGitHubCandidateUrl,
   selectReleaseTarballAsset,
   synthesizeGitCommitVersion,
 } from '../scripts/lib/discovery-sources.mjs';
-import { createTarGzBuffer, inspectTarGzBuffer, parsePaxRecords } from '../scripts/lib/tar-stream.mjs';
+import {
+  createTarGzBuffer,
+  inspectTarGzBuffer,
+  inspectTarGzStream,
+  parsePaxRecords,
+} from '../scripts/lib/tar-stream.mjs';
 import { verifyBidirectionalNpmOwnership } from '../scripts/probe-npm.mjs';
 import { sanitizeSvgIcon } from '../scripts/sanitize-icon.mjs';
 import { evaluateRepoSyncUpdate } from '../scripts/sync-releases.mjs';
@@ -2364,4 +2382,195 @@ test('Channel A upgraded repo queries shard Q2-readme-plugin-json by 90-day wind
     mcpPluginsDirQuery.query,
     '"antigravity" "mcp_config.json" ".gemini/config/plugins" in:readme archived:false pushed:>=2026-08-27',
   );
+});
+
+test('100MB archive gate is removed on Node 24 while security boundaries, rule 24KB, icon 2MB, and aggregator 2MB limits remain intact', async () => {
+  assert.equal(MAX_TARBALL_BYTES, 0);
+  assert.equal(MAX_RULE_FILE_BYTES, 24_000);
+  assert.equal(MAX_AGGREGATOR_DOC_BYTES, 2 * 1024 * 1024);
+
+  // 1. >100 MB uncompressed plugin (108 MB zero-filled binary asset + valid plugin.json + SKILL.md + SVG icon)
+  const payload108Mb = Buffer.alloc(108 * 1024 * 1024, 0);
+  const largeTar = createTarGzBuffer({
+    'plugin.json': JSON.stringify({
+      name: 'large-model-pack',
+      version: '1.0.0',
+      description: 'Large plugin with >100 MB local binary asset for Antigravity.',
+      logo: 'assets/logo.svg',
+    }),
+    'assets/logo.svg': CLEAN_SVG,
+    'assets/weights.bin': payload108Mb,
+    'skills/large-model-pack/SKILL.md':
+      '---\nname: large-model-pack\ndescription: Large binary pack\n---\n# Large Model Pack\n\nInstructions for Antigravity large binary asset plugin.\n',
+  });
+
+  // Both sync buffer inspection & async streaming inspection must pass cleanly on Node 24
+  const bufInfo = inspectTarGzBuffer(largeTar);
+  assert.ok(bufInfo.uncompressedBytes > 108 * 1024 * 1024);
+  assert.equal(bufInfo.files.has('assets/weights.bin'), true);
+  assert.equal(bufInfo.files.get('assets/weights.bin').length, 0, 'Large >4MB binary buffer should be omitted from RAM');
+  assert.equal(bufInfo.fileSizes.get('assets/weights.bin'), 108 * 1024 * 1024);
+  assert.ok(bufInfo.files.get('plugin.json').length > 0);
+
+  const streamInfo = await inspectTarGzStream(largeTar);
+  assert.equal(streamInfo.sha256, bufInfo.sha256);
+  assert.equal(streamInfo.compressedBytes, bufInfo.compressedBytes);
+  assert.equal(streamInfo.uncompressedBytes, bufInfo.uncompressedBytes);
+  assert.equal(streamInfo.fileSizes.get('assets/weights.bin'), 108 * 1024 * 1024);
+
+  // Passing Infinity or 0 explicitly must NOT trigger Node 24 gunzipSync ERR_OUT_OF_RANGE
+  const infInfo = inspectTarGzBuffer(largeTar, { maxUncompressedBytes: Infinity, maxCompressedBytes: 0 });
+  assert.equal(infInfo.sha256, bufInfo.sha256);
+
+  // Both validatePluginTarball paths (buffer & pre-inspected stream) must pass and compute identical fingerprint
+  const validatedFromBuf = validatePluginTarball(largeTar);
+  const validatedFromStream = validatePluginTarball(null, { tarInfo: streamInfo });
+  assert.equal(validatedFromBuf.sha256, bufInfo.sha256);
+  assert.equal(validatedFromStream.sha256, bufInfo.sha256);
+  assert.deepEqual(validatedFromStream.fingerprint, validatedFromBuf.fingerprint);
+  assert.equal(validatedFromBuf.iconArtifact?.ext, '.svg');
+
+  // Explicit opt-in finite positive limits MUST still enforce ERR_TAR_TOO_LARGE / ERR_TAR_DECOMPRESS_LIMIT
+  assert.throws(
+    () => inspectTarGzBuffer(largeTar, { maxUncompressedBytes: 10 * 1024 * 1024 }),
+    /ERR_TAR_DECOMPRESS_LIMIT/,
+  );
+  assert.throws(
+    () => inspectTarGzBuffer(largeTar, { maxCompressedBytes: 1024 }),
+    /ERR_TAR_TOO_LARGE/,
+  );
+  await assert.rejects(
+    () => inspectTarGzStream(largeTar, { maxUncompressedBytes: 10 * 1024 * 1024 }),
+    /ERR_TAR_DECOMPRESS_LIMIT/,
+  );
+
+  // 2. Category (B) security redlines MUST still block:
+  // 2a. Symlinks -> ERR_TAR_SYMLINK_FORBIDDEN
+  const symHeader = Buffer.alloc(1536, 0);
+  symHeader.write('bad-sym', 0, 'utf8');
+  symHeader.write('0000644\0', 100, 'ascii');
+  symHeader.write('0000000\0', 108, 'ascii');
+  symHeader.write('0000000\0', 116, 'ascii');
+  symHeader.write('00000000000\0', 124, 'ascii');
+  symHeader.write('00000000000\0', 136, 'ascii');
+  symHeader.fill(0x20, 148, 156);
+  symHeader.write('2', 156, 1, 'ascii');
+  symHeader.write('ustar\0', 257, 6, 'ascii');
+  symHeader.write('00', 263, 2, 'ascii');
+  let symSum = 0;
+  for (let i = 0; i < 512; i++) symSum += symHeader[i];
+  symHeader.write(symSum.toString(8).padStart(6, '0'), 148, 6, 'ascii');
+  symHeader[154] = 0;
+  symHeader[155] = 0x20;
+  assert.throws(() => inspectTarGzBuffer(gzipSync(symHeader)), /ERR_TAR_SYMLINK_FORBIDDEN/);
+  await assert.rejects(() => inspectTarGzStream(gzipSync(symHeader)), /ERR_TAR_SYMLINK_FORBIDDEN/);
+
+  // 2b. rules/*.md > 24,000 bytes -> ERR_RULE_SIZE_EXCEEDED
+  const bigRuleTar = createTarGzBuffer({
+    'plugin.json': JSON.stringify({
+      name: 'big-rule-plugin',
+      version: '1.0.0',
+      description: 'Rule size boundary test.',
+    }),
+    'rules/huge.md': 'x'.repeat(MAX_RULE_FILE_BYTES + 1),
+  });
+  assert.throws(() => validatePluginTarball(bigRuleTar), /ERR_RULE_SIZE_EXCEEDED/);
+
+  // 2c. Icon > 2 MB (both 2.1 MB retained and 5 MB omitted-binary path) -> ERR_ICON_TOO_LARGE
+  const hugePng2_1M = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.alloc(2 * 1024 * 1024 + 1024, 0),
+  ]);
+  const bigIconTar2M = createTarGzBuffer({
+    'plugin.json': JSON.stringify({
+      name: 'big-icon-plugin',
+      version: '1.0.0',
+      description: 'Icon size boundary test.',
+      logo: 'assets/huge.png',
+    }),
+    'assets/huge.png': hugePng2_1M,
+    'skills/big-icon-plugin/SKILL.md': '---\nname: big-icon-plugin\n---\n# Big Icon\n',
+  });
+  assert.throws(() => validatePluginTarball(bigIconTar2M), /ERR_ICON_TOO_LARGE/);
+
+  const hugePng5M = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.alloc(5 * 1024 * 1024, 0),
+  ]);
+  const bigIconTar5M = createTarGzBuffer({
+    'plugin.json': JSON.stringify({
+      name: 'big-icon-5m',
+      version: '1.0.0',
+      description: 'Icon >4MB omitted-binary boundary test.',
+      logo: 'assets/huge5m.png',
+    }),
+    'assets/huge5m.png': hugePng5M,
+    'skills/big-icon-5m/SKILL.md': '---\nname: big-icon-5m\n---\n# Big Icon 5M\n',
+  });
+  assert.throws(() => validatePluginTarball(bigIconTar5M), /ERR_ICON_TOO_LARGE/);
+
+  // 3. Aggregator 2 MB doc cap preserved on fetchWithLimit, while downloadTarballBuffer allows >2 MB & resets stall timer per chunk
+  const docOver2Mb = Buffer.alloc(MAX_AGGREGATOR_DOC_BYTES + 1024, 0x61);
+  await assert.rejects(
+    () =>
+      fetchWithLimit('https://example.com/doc.md', {
+        fetchImpl: async () => new Response(docOver2Mb, { status: 200 }),
+      }),
+    /ERR_RESPONSE_TOO_LARGE/,
+  );
+
+  // Active chunked download whose total duration (3 x 60ms = 180ms) exceeds stallTimeoutMs (110ms) must succeed
+  const activeChunks = [
+    Buffer.from([0x1f, 0x8b, 0x08]),
+    Buffer.alloc(1024 * 1024, 1),
+    Buffer.alloc(1024 * 1024 + 512, 2),
+  ];
+  const dlBuf = await downloadTarballBuffer('https://example.com/large.tar.gz', {
+    stallTimeoutMs: 110,
+    fetchImpl: async () =>
+      new Response(
+        new ReadableStream({
+          async start(controller) {
+            for (const c of activeChunks) {
+              await new Promise((r) => setTimeout(r, 60));
+              controller.enqueue(c);
+            }
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      ),
+  });
+  assert.equal(dlBuf.length, 2 * 1024 * 1024 + 515);
+
+  // Truly stalled stream (exceeds stallTimeoutMs without sending data) must abort
+  await assert.rejects(
+    () =>
+      downloadTarballBuffer('https://example.com/stalled.tar.gz', {
+        stallTimeoutMs: 80,
+        fetchImpl: async (_url, init) =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                init?.signal?.addEventListener('abort', () => controller.close(), { once: true });
+              },
+            }),
+            { status: 200 },
+          ),
+      }),
+    /ERR_TIMEOUT|AbortError/i,
+  );
+
+  // 4. Negative cache policies & state cleanup
+  assert.ok(CURRENT_VALIDATOR_VERSION >= 3);
+  assert.notEqual(classifyNegCacheReason('ERR_TAR_DECOMPRESS_LIMIT'), 'security_limit');
+  assert.notEqual(classifyNegCacheReason('ERR_RESPONSE_TOO_LARGE'), 'security_limit');
+  assert.equal(classifyNegCacheReason('ERR_TAR_PATH_TRAVERSAL'), 'security_limit');
+  assert.equal(classifyNegCacheReason('ERR_RULES_PATH_EXFILTRATION'), 'security_limit');
+
+  const negCache = JSON.parse(readFileSync(join(CATALOG_REPO_ROOT, 'state', 'crawl-negative-cache.json'), 'utf8'));
+  const decompBlocked = Object.entries(negCache.entries || {}).filter(
+    ([, v]) => v?.reason === 'ERR_TAR_DECOMPRESS_LIMIT',
+  );
+  assert.equal(decompBlocked.length, 0);
 });

@@ -18,7 +18,7 @@ import {
 } from './discovery-sources.mjs';
 
 export const DISCOVERY_STATE_SCHEMA_VERSION = 1;
-export const CURRENT_VALIDATOR_VERSION = 2;
+export const CURRENT_VALIDATOR_VERSION = 3;
 
 export const SLICER_N_SAFE = 900;
 export const SLICER_MIN_SPAN_MS = 3_600_000; // 1 hour
@@ -1307,9 +1307,7 @@ const REASON_TO_POLICY_CLASS = Object.freeze({
   ERR_RULES_PATH_EXFILTRATION: 'security_limit',
   ERR_INVISIBLE_PROMPT_INJECTION: 'security_limit',
   ERR_RULE_SIZE_EXCEEDED: 'security_limit',
-  ERR_TAR_DECOMPRESS_LIMIT: 'security_limit',
   ERR_TAR_PATH_TRAVERSAL: 'security_limit',
-  ERR_RESPONSE_TOO_LARGE: 'security_limit',
 
   ERR_REPO_NOT_FOUND: 'terminal',
   ERR_REPO_INELIGIBLE: 'terminal',

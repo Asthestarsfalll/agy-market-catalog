@@ -11,6 +11,7 @@ import {
   buildTrack2PluginRecordsForArchive,
   crawlExperimentalTopics,
 } from '../scripts/crawl-topics.mjs';
+import { CURRENT_VALIDATOR_VERSION } from '../scripts/lib/adaptive-discovery.mjs';
 import { FIRST_PARTY_REPO_OWNERS } from '../scripts/lib/constants.mjs';
 import { discoverPluginRootsInArchive, parseSafeGitHubCandidateUrl } from '../scripts/lib/discovery-sources.mjs';
 import { createTarGzBuffer, inspectTarGzBuffer } from '../scripts/lib/tar-stream.mjs';
@@ -651,7 +652,7 @@ test('crawl-topics fixes silent eviction bug, applies 3-strike >=72h 404 evictio
 
     const neg1 = JSON.parse(readFileSync(join(tmpRoot, 'state', 'crawl-negative-cache.json'), 'utf8'));
     assert.equal(neg1.entries['noise/no-manifest'].reason, 'ERR_MISSING_PLUGIN_JSON');
-    assert.equal(neg1.entries['noise/no-manifest'].validatorVersion, 2);
+    assert.equal(neg1.entries['noise/no-manifest'].validatorVersion, CURRENT_VALIDATOR_VERSION);
     assert.equal(neg1.entries['noise/no-manifest'].policyClass, 'missing_manifest');
 
     // Run 2 (t=+24h): Strike 2 on bob/vanishing-plugin -> still retained!

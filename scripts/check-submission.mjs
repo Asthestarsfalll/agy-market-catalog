@@ -17,6 +17,8 @@ import {
   parseSemver,
   RESERVED_PLUGIN_NAMES,
 } from './lib/constants.mjs';
+import { fetchWithLimit, TARBALL_FETCH_TIMEOUT_MS } from './lib/discovery-sources.mjs';
+import { inspectTarGzStream } from './lib/tar-stream.mjs';
 import { validateSingleEntryFile } from './validate-entries.mjs';
 import { validatePluginTarball } from './validate-plugin-tarball.mjs';
 
@@ -44,6 +46,7 @@ export function evaluateSubmission({
   commits = [],
   releaseInfo,
   tarballBuffer,
+  tarInfo = null,
   ledger,
   versionsLock,
   nowMs = Date.now(),
@@ -88,6 +91,7 @@ export function evaluateSubmission({
     allowScopedName: false,
     fallbackVersion: releaseInfo.tagName,
     requireSelfContained: Boolean(releaseInfo.requireSelfContained),
+    tarInfo,
   });
 
   const canonicalName = inspected.manifest.name;
@@ -329,14 +333,17 @@ export async function runLiveSubmissionCheck(entryFilePath, { writeState = false
   const commits = await githubFetchJson(`https://api.github.com/repos/${entry.repoFullName}/commits?per_page=15`, token);
   const resolvedRel = await resolveLiveReleaseCandidate(entry.repoFullName, entry.releaseAsset, token);
 
-  const tarRes = await fetch(resolvedRel.tarballUrl, {
+  const tarRes = await fetchWithLimit(resolvedRel.tarballUrl, {
     headers: { 'User-Agent': 'agy-market-catalog-gate/1.0' },
-    signal: AbortSignal.timeout(45_000),
+    maxBytes: 0,
+    timeoutMs: TARBALL_FETCH_TIMEOUT_MS,
+    stallTimeoutMs: TARBALL_FETCH_TIMEOUT_MS,
   });
   if (!tarRes.ok) {
     throw new Error(`Failed to download release asset: HTTP ${tarRes.status}`);
   }
-  const tarballBuffer = Buffer.from(await tarRes.arrayBuffer());
+  const tarballBuffer = tarRes.buffer;
+  const tarInfo = await inspectTarGzStream(tarballBuffer);
 
   const ledgerPath = join(REPO_ROOT, 'state', 'ledger.json');
   const lockPath = join(REPO_ROOT, 'state', 'versions-lock.json');
@@ -351,6 +358,7 @@ export async function runLiveSubmissionCheck(entryFilePath, { writeState = false
     commits,
     releaseInfo: resolvedRel,
     tarballBuffer,
+    tarInfo,
     ledger,
     versionsLock,
   });

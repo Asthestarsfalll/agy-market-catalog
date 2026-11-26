@@ -120,13 +120,6 @@
       "checkedAt": "2026-11-24T10:24:57.793Z",
       "retryAfter": "2026-12-01T10:24:57.793Z"
     },
-    "agent-sh/agnix": {
-      "repositoryId": 1146336156,
-      "headSha": "fefbece836bd558bbbc0847633f995d8138e8f08",
-      "reason": "ERR_TAR_DECOMPRESS_LIMIT",
-      "checkedAt": "2026-11-24T10:24:57.793Z",
-      "retryAfter": "2026-12-01T10:24:57.793Z"
-    },
     "agentic-control-plane/antigravity-acp-plugin": {
       "repositoryId": 1347716797,
       "headSha": "919fe7b954aaac4d751a15fb8962753b6a2ae673",
@@ -1513,13 +1506,6 @@
       "checkedAt": "2026-11-24T22:45:24.252Z",
       "retryAfter": "2026-12-01T22:45:24.252Z"
     },
-    "hashgraph-online/hol-guard": {
-      "repositoryId": 1194748811,
-      "headSha": "a72456acf9a16c461fc6d0a67ce34856fbd52f0e",
-      "reason": "ERR_TAR_DECOMPRESS_LIMIT",
-      "checkedAt": "2026-11-24T10:24:57.793Z",
-      "retryAfter": "2026-12-01T10:24:57.793Z"
-    },
     "hassenchaaben/flow-film-director": {
       "repositoryId": 1445113202,
       "headSha": "67da56e776b6a22734134e6dbb1bba0c6ec8447b",
@@ -1898,13 +1884,6 @@
       "checkedAt": "2026-11-24T10:24:57.793Z",
       "retryAfter": "2026-12-01T10:24:57.793Z"
     },
-    "koala73/worldmonitor": {
-      "repositoryId": 1130564872,
-      "headSha": "de602d000d9e10e7da651884bb589d2ad55f3593",
-      "reason": "ERR_TAR_DECOMPRESS_LIMIT",
-      "checkedAt": "2026-11-24T10:24:57.793Z",
-      "retryAfter": "2026-12-01T10:24:57.793Z"
-    },
     "konstantinvladimirtsev69/antigravity-git-widget": {
       "repositoryId": 1466939481,
       "headSha": "3f13be8bd2d9d2d706fdbc3f6ad5753695339bf0",
@@ -1974,13 +1953,6 @@
       "reason": "ERR_TAR_SYMLINK_FORBIDDEN",
       "checkedAt": "2026-11-24T22:45:24.252Z",
       "retryAfter": "2026-12-01T22:45:24.252Z"
-    },
-    "lbjlaq/antigravity-manager": {
-      "repositoryId": 1104535633,
-      "headSha": "9b6dfc107df6076f114ad2bb516ba54c69aea784",
-      "reason": "ERR_TAR_DECOMPRESS_LIMIT",
-      "checkedAt": "2026-11-24T10:24:57.793Z",
-      "retryAfter": "2026-12-01T10:24:57.793Z"
     },
     "ldxm666/antigravity-third-party-model-plugin": {
       "repositoryId": 1456450581,
@@ -2588,13 +2560,6 @@
       "repositoryId": 1469938026,
       "headSha": "74d4e071b6958f7b0eefad87882e7c0aaeba507e",
       "reason": "ERR_MISSING_PLUGIN_JSON",
-      "checkedAt": "2026-11-24T10:24:57.793Z",
-      "retryAfter": "2026-12-01T10:24:57.793Z"
-    },
-    "polymath-void/termux-antigravity-cli-agy": {
-      "repositoryId": 1322056561,
-      "headSha": "24328026bcc29e5cbd1d9eeb587717ebb99d1847",
-      "reason": "ERR_TAR_DECOMPRESS_LIMIT",
       "checkedAt": "2026-11-24T10:24:57.793Z",
       "retryAfter": "2026-12-01T10:24:57.793Z"
     },
@@ -3575,13 +3540,6 @@
       "repositoryId": 1431626904,
       "headSha": "3d9298f121a10b16779792737398e71fb25eceef",
       "reason": "ERR_UNBUILT_SOURCE_ARCHIVE",
-      "checkedAt": "2026-11-24T10:24:57.793Z",
-      "retryAfter": "2026-12-01T10:24:57.793Z"
-    },
-    "yonatangross/orchestkit": {
-      "repositoryId": 1125663750,
-      "headSha": "b37d1dcdd43cc48838fc02dbb182d9108d1233cb",
-      "reason": "ERR_TAR_DECOMPRESS_LIMIT",
       "checkedAt": "2026-11-24T10:24:57.793Z",
       "retryAfter": "2026-12-01T10:24:57.793Z"
     },

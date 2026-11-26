@@ -144,7 +144,7 @@ Because Antigravity enforces a global flat namespace on `plugin.json.name` (sile
 All checks run strictly via zero-execution in-memory streaming:
 
 - **Hard-Block Redlines (Genuine Supply-Chain & Exfiltration Threats Only)**:
-  1. Tarball path traversal (`..`), absolute paths, or symlink/hardlink entries (`typeflag` `'1'` / `'2'`); `100 MB` max archive size.
+  1. Tarball path traversal (`..`), absolute paths, or symlink/hardlink entries (`typeflag` `'1'` / `'2'`) (no artificial archive size limit; large self-contained bundles are stream-validated).
   2. Immutable tag/digest mutation (`TAG_MUTATION_BLOCKED`) against `state/versions-lock.json`.
   3. `rules/*.md` `@[label](path)` out-of-root file exfiltration (`..`, `~/`, env vars, absolute paths) and Antigravity's `24,000`-byte per-rule ceiling.
   4. Invisible Unicode Tag (`U+E0000..U+E007F`) and bidi override prompt-injection smuggling in `rules/*.md`, `skills/**/SKILL.md`, and `agents/*.md`.

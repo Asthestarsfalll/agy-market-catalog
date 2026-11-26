@@ -867,14 +867,28 @@ export async function fetchWithLimit(
   {
     headers = {},
     timeoutMs = AGGREGATOR_FETCH_TIMEOUT_MS,
+    stallTimeoutMs = 0,
     maxBytes = MAX_AGGREGATOR_DOC_BYTES,
     method = 'GET',
     redirect = 'follow',
     fetchImpl = fetch,
   } = {},
 ) {
+  const hasMaxBytes = Number.isFinite(maxBytes) && maxBytes > 0;
+  const useStall = Number.isFinite(stallTimeoutMs) && stallTimeoutMs > 0;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timer = null;
+  const resetTimer = (ms) => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    if (Number.isFinite(ms) && ms > 0) {
+      timer = setTimeout(
+        () => controller.abort(new Error(`ERR_TIMEOUT: Request timed out after ${ms}ms (${url})`)),
+        ms,
+      );
+    }
+  };
+  resetTimer(useStall ? stallTimeoutMs : timeoutMs);
   try {
     const res = await fetchImpl(url, {
       method,
@@ -886,13 +900,16 @@ export async function fetchWithLimit(
       return { ok: res.ok, status: res.status, headers: res.headers, url: res.url, buffer: Buffer.alloc(0) };
     }
     const contentLen = Number(res.headers.get('content-length') || 0);
-    if (maxBytes > 0 && contentLen > maxBytes) {
+    if (hasMaxBytes && contentLen > maxBytes) {
       throw new Error(`ERR_RESPONSE_TOO_LARGE: Content-Length ${contentLen} exceeds ${maxBytes} for ${url}`);
     }
     if (!res.body) {
+      if (useStall) {
+        resetTimer(Math.max(stallTimeoutMs, 300_000));
+      }
       const ab = await res.arrayBuffer();
       const buf = Buffer.from(ab);
-      if (maxBytes > 0 && buf.length > maxBytes) {
+      if (hasMaxBytes && buf.length > maxBytes) {
         throw new Error(`ERR_RESPONSE_TOO_LARGE: Body size ${buf.length} exceeds ${maxBytes} for ${url}`);
       }
       return { ok: res.ok, status: res.status, headers: res.headers, url: res.url, buffer: buf };
@@ -900,16 +917,46 @@ export async function fetchWithLimit(
     const reader = res.body.getReader();
     const chunks = [];
     let total = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = Buffer.from(value);
-      total += chunk.length;
-      if (maxBytes > 0 && total > maxBytes) {
-        await reader.cancel().catch(() => {});
-        throw new Error(`ERR_RESPONSE_TOO_LARGE: Stream size exceeds ${maxBytes} for ${url}`);
+    let abortReject = null;
+    const abortPromise = new Promise((_, reject) => {
+      abortReject = reject;
+    });
+    abortPromise.catch(() => {});
+    const onAbort = () => {
+      const reason =
+        controller.signal.reason ||
+        new Error(`ERR_TIMEOUT: Download stalled for ${useStall ? stallTimeoutMs : timeoutMs}ms (${url})`);
+      abortReject(reason instanceof Error ? reason : new Error(String(reason)));
+    };
+    if (controller.signal.aborted) {
+      onAbort();
+    } else {
+      controller.signal.addEventListener('abort', onAbort, { once: true });
+    }
+    try {
+      while (true) {
+        if (useStall) resetTimer(stallTimeoutMs);
+        const { done, value } = await Promise.race([reader.read(), abortPromise]);
+        if (controller.signal.aborted) {
+          const reason =
+            controller.signal.reason ||
+            new Error(`ERR_TIMEOUT: Download stalled for ${useStall ? stallTimeoutMs : timeoutMs}ms (${url})`);
+          throw reason instanceof Error ? reason : new Error(String(reason));
+        }
+        if (done) break;
+        const chunk = Buffer.from(value);
+        total += chunk.length;
+        if (hasMaxBytes && total > maxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new Error(`ERR_RESPONSE_TOO_LARGE: Stream size exceeds ${maxBytes} for ${url}`);
+        }
+        chunks.push(chunk);
       }
-      chunks.push(chunk);
+    } catch (err) {
+      await reader.cancel().catch(() => {});
+      throw err;
+    } finally {
+      controller.signal.removeEventListener('abort', onAbort);
     }
     return {
       ok: res.ok,
@@ -919,7 +966,7 @@ export async function fetchWithLimit(
       buffer: Buffer.concat(chunks, total),
     };
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -1156,10 +1203,16 @@ export async function fetchAggregatorCandidates(
 
 export async function downloadTarballBuffer(
   tarballUrl,
-  { fetchImpl = fetch, userAgent = 'agy-market-topic-crawler/1.4', maxBytes = MAX_TARBALL_BYTES } = {},
+  {
+    fetchImpl = fetch,
+    userAgent = 'agy-market-topic-crawler/1.4',
+    maxBytes = MAX_TARBALL_BYTES,
+    stallTimeoutMs = TARBALL_FETCH_TIMEOUT_MS,
+  } = {},
 ) {
   const res = await fetchWithLimit(tarballUrl, {
-    timeoutMs: TARBALL_FETCH_TIMEOUT_MS,
+    timeoutMs: stallTimeoutMs,
+    stallTimeoutMs,
     maxBytes,
     headers: { 'User-Agent': userAgent },
     fetchImpl,

@@ -79,7 +79,7 @@ import {
   selectAuthorsForExpansion,
   toRestCompatRepoMeta,
 } from './lib/graphql-batch.mjs';
-import { inspectTarGzBuffer } from './lib/tar-stream.mjs';
+import { inspectTarGzBuffer, inspectTarGzStream } from './lib/tar-stream.mjs';
 import {
   CURATED_TAXONOMY_OVERRIDES,
   extractBilingualSummaryFromReadmes,
@@ -388,6 +388,7 @@ export function buildTrack2PluginRecordsForArchive({
   repoMeta,
   releaseInfo,
   tarballBuffer,
+  tarInfo: preInspectedTarInfo = null,
   explicitSubpaths = [],
   subdirGlobs = [],
   isMonorepo = false,
@@ -401,7 +402,7 @@ export function buildTrack2PluginRecordsForArchive({
     return { records: [], skipped: [{ pluginRoot: '.', code: 'ERR_REPO_INELIGIBLE' }], candidateRoots: [] };
   }
 
-  const tarInfo = inspectTarGzBuffer(tarballBuffer, { allowExternalSymlinks: true });
+  const tarInfo = preInspectedTarInfo || inspectTarGzBuffer(tarballBuffer, { allowExternalSymlinks: true });
   const candidateRoots = discoverPluginRootsInArchive(tarInfo.files, {
     explicitSubpaths,
     subdirGlobs,
@@ -1857,6 +1858,7 @@ export async function crawlExperimentalTopics({
     }
 
     try {
+      const tarInfo = await inspectTarGzStream(tarballBuf, { allowExternalSymlinks: true });
       const out = buildTrack2PluginRecordsForArchive({
         repoMeta,
         releaseInfo: {
@@ -1867,6 +1869,7 @@ export async function crawlExperimentalTopics({
           requireSelfContained: snapshot.requireSelfContained,
         },
         tarballBuffer: tarballBuf,
+        tarInfo,
         explicitSubpaths: [...candidate.explicitSubpaths],
         subdirGlobs: [...candidate.subdirGlobs],
         isMonorepo: candidate.isMonorepo,

@@ -8,8 +8,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildSourceArchiveUrl, compareSemver, parseSemver } from './lib/constants.mjs';
+import { fetchWithLimit, TARBALL_FETCH_TIMEOUT_MS } from './lib/discovery-sources.mjs';
 import { batchTrack1DualLookup } from './lib/graphql-batch.mjs';
 import { computeCapabilityDiff } from './lib/quality-ranker.mjs';
+import { inspectTarGzStream } from './lib/tar-stream.mjs';
 import { probeNpmMirrorPackage } from './probe-npm.mjs';
 import { validatePluginTarball } from './validate-plugin-tarball.mjs';
 
@@ -66,6 +68,7 @@ export function evaluateRepoSyncUpdate({
   repoByNumericId,
   releases = [],
   tarballBuffersByTag = new Map(),
+  tarInfoByTag = null,
   nowIso = new Date().toISOString(),
 }) {
   const updatedLedger = structuredClone(ledgerRecord);
@@ -158,6 +161,7 @@ export function evaluateRepoSyncUpdate({
 
   for (const rel of candidateReleases) {
     const sem = parseSemver(rel.tagName);
+    const preInspectedTarInfo = tarInfoByTag?.get(rel.tagName) || null;
     if (updatedLock.versions[sem.version]) {
       // Check sha256 immutability if buffer also supplied
       const buf = tarballBuffersByTag.get(rel.tagName);
@@ -166,6 +170,7 @@ export function evaluateRepoSyncUpdate({
           pluginRoot: updatedLedger.pluginRoot || '.',
           allowScopedName: false,
           fallbackVersion: rel.tagName,
+          tarInfo: preInspectedTarInfo,
         });
         if (check.sha256 !== updatedLock.versions[sem.version].sha256) {
           updatedLedger.status = 'TAG_MUTATION_BLOCKED';
@@ -184,6 +189,7 @@ export function evaluateRepoSyncUpdate({
       allowScopedName: false,
       fallbackVersion: rel.tagName,
       requireSelfContained: Boolean(rel.requireSelfContained),
+      tarInfo: preInspectedTarInfo,
     });
 
     if (inspected.manifest.name !== updatedLedger.canonicalName) {
@@ -363,20 +369,26 @@ export async function syncAllRegisteredReleases({
     const alreadyLocked = versionsLock.locks[rec.entrySlug]?.versions?.[sem.version];
     let npmMirrorPkg = alreadyLocked?.npmMirrorPkg || null;
     let tarballBuf = null;
+    let tarInfo = null;
 
     if (!alreadyLocked) {
-      const dl = await fetchImpl(downloadUrl, {
+      const dl = await fetchWithLimit(downloadUrl, {
+        fetchImpl,
         headers: { 'User-Agent': 'agy-market-catalog-sync/1.6' },
-        signal: AbortSignal.timeout(45_000),
+        maxBytes: 0,
+        timeoutMs: TARBALL_FETCH_TIMEOUT_MS,
+        stallTimeoutMs: TARBALL_FETCH_TIMEOUT_MS,
       });
       if (dl.ok) {
-        tarballBuf = Buffer.from(await dl.arrayBuffer());
+        tarballBuf = dl.buffer;
         try {
+          tarInfo = await inspectTarGzStream(tarballBuf);
           const parsed = validatePluginTarball(tarballBuf, {
             pluginRoot: rec.pluginRoot || '.',
             allowScopedName: false,
             fallbackVersion: tagName,
             requireSelfContained,
+            tarInfo,
           });
           if (parsed.iconArtifact) {
             const iconFile = `${rec.entrySlug}${parsed.iconArtifact.ext}`;
@@ -402,6 +414,7 @@ export async function syncAllRegisteredReleases({
         requireSelfContained,
       },
       tarballBuf,
+      tarInfo,
     };
   }
 
@@ -411,6 +424,7 @@ export async function syncAllRegisteredReleases({
     let repoAtOldSlug = null;
     const releases = [];
     const tarballBuffersByTag = new Map();
+    const tarInfoByTag = new Map();
 
     const gqlEntry = gqlResults?.get(rec.entrySlug) || null;
     let usedGraphqlForRec = false;
@@ -456,6 +470,7 @@ export async function syncAllRegisteredReleases({
           const prepared = await downloadAndPrepareCandidate({ rec, repoByNumericId, ...cand });
           if (!prepared) continue;
           if (prepared.tarballBuf) tarballBuffersByTag.set(cand.tagName, prepared.tarballBuf);
+          if (prepared.tarInfo) tarInfoByTag.set(cand.tagName, prepared.tarInfo);
           releases.push(prepared.rel);
         }
       }
@@ -548,6 +563,7 @@ export async function syncAllRegisteredReleases({
           });
           if (!prepared) continue;
           if (prepared.tarballBuf) tarballBuffersByTag.set(r.tagName, prepared.tarballBuf);
+          if (prepared.tarInfo) tarInfoByTag.set(r.tagName, prepared.tarInfo);
           releases.push(prepared.rel);
         }
       }
@@ -560,6 +576,7 @@ export async function syncAllRegisteredReleases({
       repoByNumericId,
       releases,
       tarballBuffersByTag,
+      tarInfoByTag,
       nowIso,
     });
     ledger.entries[rec.canonicalName] = out.ledgerRecord;

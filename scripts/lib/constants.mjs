@@ -5,7 +5,7 @@ export const MIN_AGE_MS = MIN_AGE_DAYS * 86_400_000;
 export const MIN_NON_EMPTY_COMMITS = 3;
 export const MAX_ENTRIES_PER_PR = 3;
 export const MAX_DELETED_ENTRIES_PER_PR = 2;
-export const MAX_TARBALL_BYTES = 100 * 1024 * 1024; // 100 MB
+export const MAX_TARBALL_BYTES = 0; // 0 = no artificial archive size limit
 export const MAX_RULE_FILE_BYTES = 24_000; // Antigravity per-rule ceiling
 
 export const DEFAULT_CATALOG_REPO_URL = 'https://github.com/azwosile/agy-market-catalog';

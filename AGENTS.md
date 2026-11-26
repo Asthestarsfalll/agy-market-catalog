@@ -76,7 +76,7 @@ Runs immediately on untrusted fork PRs with `permissions: contents: read`:
    - **Mandatory Prebuilt Release Tarball Check (Language-Agnostic, Non-npm Native)**:
      - Require at least one published GitHub Release containing a `.tar.gz` or `.tgz` prebuilt plugin bundle (selected via `agy-market.json` / YAML `releaseAsset`, or single `.tar.gz`/`.tgz` release asset; **never** raw GitHub `source archive` unless it already contains prebuilt self-contained files with zero build step, though dedicated release asset tarballs are preferred).
      - **Do NOT require `package.json` or npm publication**—pure Markdown `skills/`/`rules/`/`agents/` plugins and Python/Rust/Go MCP plugins are first-class citizens.
-     - Stream-inspect the tarball in memory (`node:zlib` + safe tar parser, max `100 MB`, rejecting `..` traversal and symlinks):
+     - Stream-inspect the tarball (`node:zlib` + safe tar parser with no artificial archive size limit, discarding >4 MB non-text binary payloads from RAM while rejecting `..` traversal and symlinks):
        1. Confirm `<pluginRoot>/plugin.json` exists and parses cleanly.
        2. Confirm every top-level key in `plugin.json` belongs to Antigravity's 10-field allowlist (`name`, `displayName`, `description`, `version`, `author`, `homepage`, `repository`, `logo`, `suggestedPrompts`, `disabled`).
        3. Confirm `plugin.json.logo` (if set) is a relative path ending in `.svg`, `.png`, `.jpg`, `.jpeg`, or `.webp` whose file exists inside `<pluginRoot>/` (never an `https://` URL).

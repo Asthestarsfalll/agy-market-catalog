@@ -159,7 +159,7 @@ Antigravity 对 `plugin.json.name` 采用全局扁平命名空间——若两款
 CI 全程仅在内存中流式只读分析，**绝不执行任何插件代码或 `npm install`**：
 
 ### 硬性拦截红线（仅拦截真实供应链与窃密攻击）
-1. **压缩包路径穿越与符号链接投毒**：拒绝包含 `..`、绝对路径或 symlink / hardlink（`typeflag` `'1'` / `'2'`）的 tar 条目，单包上限 `100 MB`。
+1. **压缩包路径穿越与符号链接投毒**：拒绝包含 `..`、绝对路径或 symlink / hardlink（`typeflag` `'1'` / `'2'`）的 tar 条目（已取消人工包体积上限，支持大体积自包含插件流式校验）。
 2. **已锁定 Tag 篡改（`TAG_MUTATION_BLOCKED`）**：`state/versions-lock.json` 中已记录版本的 `commitSha` 或 `sha256` 发生任何变化即硬性拦截。
 3. **`rules/*.md` 本地文件外泄与超限**：拦截正文中 `@[label](path)` 引用 `..`、`~/`、环境变量或绝对路径的行为，并强制遵守单条规则 `<= 24,000` 字节上限。
 4. **不可见提示词注入走私**：拦截 `rules/*.md`、`skills/**/SKILL.md`、`agents/*.md` 中的 Unicode Tag 区段（`U+E0000..U+E007F`）与双向文本覆写字符。

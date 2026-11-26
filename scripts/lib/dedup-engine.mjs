@@ -199,6 +199,7 @@ function tokenizeForShingles(text) {
 export function computePluginFingerprint(scopedFiles, meta = {}) {
   const entries = iterScopedEntries(scopedFiles);
   const contentHash = computeFunctionalContentHash(scopedFiles) || meta.contentHash || null;
+  const fileSizes = meta.fileSizes && typeof meta.fileSizes.get === 'function' ? meta.fileSizes : null;
 
   const shingleSet = new Set();
   const textParts = [];
@@ -208,7 +209,11 @@ export function computePluginFingerprint(scopedFiles, meta = {}) {
   for (const [rawRel, rawVal] of entries) {
     const rel = normalizeRelPosix(rawRel);
     if (!rel || rel === '.') continue;
-    const bufLen = Buffer.isBuffer(rawVal) ? rawVal.length : Buffer.byteLength(String(rawVal || ''), 'utf8');
+    const bufLen = fileSizes?.has(rel)
+      ? fileSizes.get(rel)
+      : Buffer.isBuffer(rawVal)
+        ? rawVal.length
+        : Buffer.byteLength(String(rawVal || ''), 'utf8');
     const sizeBucket = Math.floor(Math.log2(Math.max(1, bufLen)));
 
     if (!NON_RUNTIME_TEST_RE.test(rel)) {
