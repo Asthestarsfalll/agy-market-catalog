@@ -1,0 +1,6 @@
+url: https://github.com/A16Nights/antigravity-azure-prism
+pluginRoot: .
+category: monitoring-quota
+description:
+  zh: "苍蓝棱镜：原生 MCP App 思维链实时观测与多通道中文翻译面板，支持原生标题与无限历史分页、引用思考到下条消息上下文，以及免密钥零 Token 机翻或外部模型译文。"
+  en: "Azure Prism: native MCP App Chain-of-Thought viewer with native session titles, infinite history pagination, quote-to-chat interactions, and keyless zero-token or external LLM translation."

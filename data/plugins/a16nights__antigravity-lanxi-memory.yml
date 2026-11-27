@@ -1,0 +1,6 @@
+url: https://github.com/A16Nights/antigravity-lanxi-memory
+pluginRoot: .
+category: writing-knowledge
+description:
+  zh: "蓝汐 · 潮汐认知图谱：纯本地五层 Markdown 认知记忆库与 SQLite FTS5 全文检索，结合幂律遗忘曲线、硬保护防失忆与「潮汐星海」交互星图工作台。"
+  en: "Lanxi Memory: local-first 5-layer Markdown cognitive graph with SQLite CJK FTS5 search, tidal forgetting curves, hard-protection guards, and the Tidal Starfield visual workbench."

@@ -1,0 +1,6 @@
+url: https://github.com/A16Nights/antigravity-azure-corridor
+pluginRoot: .
+category: productivity
+description:
+  zh: "苍蓝回廊：100% 直连 Antigravity 2.35+ 官方 ConversationService 与工作区配置，支持 FTS5 正文全文搜索、官方分组/标签/归档双向同步与跨工作区转移续聊。"
+  en: "Azure Corridor: 100% native Antigravity 2.35+ ConversationService and workspace manager with FTS5 full-text search, two-way groups/tags/archive sync, and cross-workspace session transfer."
