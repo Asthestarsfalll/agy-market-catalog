@@ -170,6 +170,40 @@
         "think-zh_think-zh"
       ],
       "registeredAt": "2026-11-27T03:21:03.424Z"
+    },
+    "azure-orbit": {
+      "entrySlug": "a16nights__antigravity-azure-orbit",
+      "canonicalName": "azure-orbit",
+      "repositoryId": 1464817805,
+      "ownerId": 104626775,
+      "repoFullName": "A16Nights/antigravity-azure-orbit",
+      "pluginRoot": ".",
+      "status": "active",
+      "claimedSkills": [
+        "azure-orbit"
+      ],
+      "claimedAgents": [],
+      "claimedMcpServers": [
+        "azure-orbit_azure-orbit"
+      ],
+      "registeredAt": "2026-11-27T03:21:19.640Z"
+    },
+    "external-orchestrator": {
+      "entrySlug": "a16nights__antigravity-external-orchestrator",
+      "canonicalName": "external-orchestrator",
+      "repositoryId": 1464757548,
+      "ownerId": 104626775,
+      "repoFullName": "A16Nights/antigravity-external-orchestrator",
+      "pluginRoot": ".",
+      "status": "active",
+      "claimedSkills": [
+        "external-orchestrator"
+      ],
+      "claimedAgents": [],
+      "claimedMcpServers": [
+        "external-orchestrator_orchestrator"
+      ],
+      "registeredAt": "2026-11-27T03:21:22.364Z"
     }
   }
 }
