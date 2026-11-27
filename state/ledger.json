@@ -204,6 +204,25 @@
         "external-orchestrator_orchestrator"
       ],
       "registeredAt": "2026-11-27T03:21:22.364Z"
+    },
+    "azure-wand": {
+      "entrySlug": "a16nights__antigravity-azure-wand",
+      "canonicalName": "azure-wand",
+      "repositoryId": 1471061740,
+      "ownerId": 104626775,
+      "repoFullName": "A16Nights/antigravity-azure-wand",
+      "pluginRoot": ".",
+      "status": "active",
+      "claimedSkills": [
+        "azure-wand"
+      ],
+      "claimedAgents": [],
+      "claimedMcpServers": [
+        "azure-wand_azure-wand",
+        "azure-wand_azure-wand-independent",
+        "azure-wand_azure-wand-nav"
+      ],
+      "registeredAt": "2026-11-27T03:21:36.674Z"
     }
   }
 }
