@@ -223,6 +223,19 @@
         "azure-wand_azure-wand-nav"
       ],
       "registeredAt": "2026-11-27T03:21:36.674Z"
+    },
+    "agy-anchor-wheel": {
+      "entrySlug": "curelove__agy-anchor-wheel",
+      "canonicalName": "agy-anchor-wheel",
+      "repositoryId": 1469249518,
+      "ownerId": 174407298,
+      "repoFullName": "Curelove/agy-anchor-wheel",
+      "pluginRoot": ".",
+      "status": "active",
+      "claimedSkills": [],
+      "claimedAgents": [],
+      "claimedMcpServers": [],
+      "registeredAt": "2026-11-27T03:21:49.778Z"
     }
   }
 }
