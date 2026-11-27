@@ -1,0 +1,6 @@
+url: https://github.com/A16Nights/antigravity-azure-compass
+pluginRoot: .
+category: agents-reasoning
+description:
+  zh: "苍蓝罗盘：Agent 工作模式预设中心、全局 AGENTS.md 无损热同步编辑器与上下文水位监测插件，支持自动 /compact 压缩联动、外接模型防掉线强化与苍蓝侧栏总控。"
+  en: "Azure Compass: Agent preset hub, live global AGENTS.md editor with snapshot rollback, and context-window monitor with auto /compact dispatch and external model anti-drift guards."
