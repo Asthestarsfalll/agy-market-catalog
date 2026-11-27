@@ -1,0 +1,6 @@
+url: https://github.com/A16Nights/antigravity-azure-wand
+pluginRoot: .
+category: mcp-integrations
+description:
+  zh: "苍蓝魔杖：Windows 低打扰可视化桌面与网页操控插件，内置 26 项 UIA / OCR / 后台网页 CDP 工具、15 状态独立输入动态 AI 光标、苍蓝玻璃思考浮窗与快捷键急停。"
+  en: "Azure Wand: low-intrusion Windows desktop and web automation plugin with 26 UIA/OCR/CDP tools, a 15-state non-intrusive dynamic AI cursor, glass thought HUDs, and instant hotkeys."
