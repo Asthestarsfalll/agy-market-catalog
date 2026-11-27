@@ -1,0 +1,6 @@
+url: https://github.com/A16Nights/antigravity-external-orchestrator
+pluginRoot: .
+category: agents-reasoning
+description:
+  zh: "苍蓝协奏台：零依赖多渠道外部大模型协同调度插件，自动委派 DeepSeek / OpenAI / Anthropic / 本地网关等模型执行文件读写与终端任务，支持自定义角色、容灾链与断路器。"
+  en: "External Orchestrator: zero-dependency multi-provider LLM task router for Antigravity with custom worker profiles, fallback chains, circuit breakers, and a live sidecar console."

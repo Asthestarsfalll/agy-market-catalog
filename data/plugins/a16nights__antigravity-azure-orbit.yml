@@ -1,0 +1,7 @@
+url: https://github.com/A16Nights/antigravity-azure-orbit
+pluginRoot: .
+category: mcp-integrations
+releaseAsset: antigravity-azure-orbit.tar.gz
+description:
+  zh: "苍蓝星轨：将外部大模型 API（DeepSeek / OpenAI / Anthropic / OpenRouter / Ollama 等）直接挂载进 Antigravity 左下角原生模型下拉菜单作为主脑使用，支持热读取与 2.35+ 补丁管理。"
+  en: "Azure Orbit: mount external LLM APIs (DeepSeek, OpenAI, Anthropic, OpenRouter, Ollama) directly into Antigravity native model selector with hot-reload and 2.32+ to 2.35+ patch tools."
