@@ -119,6 +119,57 @@
         "lanxi-memory_lanxi-memory"
       ],
       "registeredAt": "2026-11-27T03:20:45.779Z"
+    },
+    "agent-presets": {
+      "entrySlug": "a16nights__antigravity-azure-compass",
+      "canonicalName": "agent-presets",
+      "repositoryId": 1464883304,
+      "ownerId": 104626775,
+      "repoFullName": "A16Nights/antigravity-azure-compass",
+      "pluginRoot": ".",
+      "status": "active",
+      "claimedSkills": [
+        "agent-presets"
+      ],
+      "claimedAgents": [],
+      "claimedMcpServers": [
+        "agent-presets_agent-presets-nav"
+      ],
+      "registeredAt": "2026-11-27T03:21:01.292Z"
+    },
+    "soul-md": {
+      "entrySlug": "a16nights__antigravity-soul-md",
+      "canonicalName": "soul-md",
+      "repositoryId": 1464688845,
+      "ownerId": 104626775,
+      "repoFullName": "A16Nights/antigravity-soul-md",
+      "pluginRoot": ".",
+      "status": "active",
+      "claimedSkills": [
+        "soul-md"
+      ],
+      "claimedAgents": [],
+      "claimedMcpServers": [
+        "soul-md_soul-md"
+      ],
+      "registeredAt": "2026-11-27T03:21:02.280Z"
+    },
+    "think-zh": {
+      "entrySlug": "a16nights__antigravity-think-zh",
+      "canonicalName": "think-zh",
+      "repositoryId": 1464768433,
+      "ownerId": 104626775,
+      "repoFullName": "A16Nights/antigravity-think-zh",
+      "pluginRoot": ".",
+      "status": "active",
+      "claimedSkills": [
+        "think-zh"
+      ],
+      "claimedAgents": [],
+      "claimedMcpServers": [
+        "think-zh_think-zh"
+      ],
+      "registeredAt": "2026-11-27T03:21:03.424Z"
     }
   }
 }
