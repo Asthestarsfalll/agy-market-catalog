@@ -251,6 +251,21 @@
         "usage-monitor_host"
       ],
       "registeredAt": "2026-11-27T03:22:04.828Z"
+    },
+    "archive-manager": {
+      "entrySlug": "yukikaguraa__agy-archive-manager",
+      "canonicalName": "archive-manager",
+      "repositoryId": 1472969969,
+      "ownerId": 299237637,
+      "repoFullName": "YukiKaguraA/agy-archive-manager",
+      "pluginRoot": ".",
+      "status": "active",
+      "claimedSkills": [
+        "archive-manager"
+      ],
+      "claimedAgents": [],
+      "claimedMcpServers": [],
+      "registeredAt": "2026-11-27T03:22:19.143Z"
     }
   }
 }
