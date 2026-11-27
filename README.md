@@ -56,6 +56,9 @@ curl -fsSL https://raw.githubusercontent.com/azwosile/agy-market/main/scripts/in
 <!-- CATALOG-TABLE:START -->
 | 目录 ID | 规范名 (`canonicalName`) | 版本 | GitHub 仓库 | 能力徽章 | 简介 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
+| `a16nights__antigravity-azure-corridor` | `azure-corridor` | `1.2.2` | [`A16Nights/antigravity-azure-corridor`](https://github.com/A16Nights/antigravity-azure-corridor) | `sidecar-ui`, `mcp-stdio` | 苍蓝回廊：100% 直连 Antigravity 2.35+ 官方 ConversationService 与工作区配置，支持 FTS5 正文全文搜索、官方分组/标签/归档双向同步与跨工作区转移续聊。 |
+| `a16nights__antigravity-azure-prism` | `azure-prism` | `1.3.2` | [`A16Nights/antigravity-azure-prism`](https://github.com/A16Nights/antigravity-azure-prism) | `mcp-stdio` | 苍蓝棱镜：原生 MCP App 思维链实时观测与多通道中文翻译面板，支持原生标题与无限历史分页、引用思考到下条消息上下文，以及免密钥零 Token 机翻或外部模型译文。 |
+| `a16nights__antigravity-lanxi-memory` | `lanxi-memory` | `1.5.3` | [`A16Nights/antigravity-lanxi-memory`](https://github.com/A16Nights/antigravity-lanxi-memory) | `global-rules`, `sidecar-ui`, `mcp-stdio`, `lifecycle-hooks` | 蓝汐 · 潮汐认知图谱：纯本地五层 Markdown 认知记忆库与 SQLite FTS5 全文检索，结合幂律遗忘曲线、硬保护防失忆与「潮汐星海」交互星图工作台。 |
 | `azwosile__agy-market` | `agy-market` | `1.7.1` | [`azwosile/agy-market`](https://github.com/azwosile/agy-market) | `sidecar-ui`, `host-enhancement` (`cdp`) | Google Antigravity 社区插件市场侧边栏，支持镜像下载校验、本地冲突检查与一键安装更新。 |
 | `azwosile__agy-wallpaper-prism` | `agy-wallpaper-prism` | `2.3.0` | [`azwosile/agy-wallpaper-prism`](https://github.com/azwosile/agy-wallpaper-prism) | `sidecar-ui`, `host-enhancement` (`cdp`) | Antigravity 黑曜棱镜毛玻璃皮肤与 Wallpaper Engine 工坊（支持浮岛/平铺布局、动态取色、本地视频与创意工坊壁纸）。 |
 | `yunjuanyunshu114-byte__antigravity-observer` | `gemini-neko-cockpit` | `1.3.0` | [`yunjuanyunshu114-byte/antigravity-observer`](https://github.com/yunjuanyunshu114-byte/antigravity-observer) | `sidecar-ui`, `host-enhancement` (`app-asar`) | Google Antigravity 2.0 应用内右下角 Gemini 猫娘桌面挂件与上下文 Token / 缓存命中率 / 模型额度实时观察台。 |

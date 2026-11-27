@@ -70,6 +70,55 @@
       "claimedMcpServers": [],
       "registeredAt": "2026-11-23T11:33:02.584Z",
       "nodeId": "R_kgDOVv6uvw"
+    },
+    "azure-corridor": {
+      "entrySlug": "a16nights__antigravity-azure-corridor",
+      "canonicalName": "azure-corridor",
+      "repositoryId": 1464978800,
+      "ownerId": 104626775,
+      "repoFullName": "A16Nights/antigravity-azure-corridor",
+      "pluginRoot": ".",
+      "status": "active",
+      "claimedSkills": [
+        "azure-corridor"
+      ],
+      "claimedAgents": [],
+      "claimedMcpServers": [
+        "azure-corridor_azure-corridor-nav"
+      ],
+      "registeredAt": "2026-11-27T03:20:43.798Z"
+    },
+    "azure-prism": {
+      "entrySlug": "a16nights__antigravity-azure-prism",
+      "canonicalName": "azure-prism",
+      "repositoryId": 1467127418,
+      "ownerId": 104626775,
+      "repoFullName": "A16Nights/antigravity-azure-prism",
+      "pluginRoot": ".",
+      "status": "active",
+      "claimedSkills": [],
+      "claimedAgents": [],
+      "claimedMcpServers": [
+        "azure-prism_azure-prism"
+      ],
+      "registeredAt": "2026-11-27T03:20:44.805Z"
+    },
+    "lanxi-memory": {
+      "entrySlug": "a16nights__antigravity-lanxi-memory",
+      "canonicalName": "lanxi-memory",
+      "repositoryId": 1464688700,
+      "ownerId": 104626775,
+      "repoFullName": "A16Nights/antigravity-lanxi-memory",
+      "pluginRoot": ".",
+      "status": "active",
+      "claimedSkills": [
+        "lanxi-memory"
+      ],
+      "claimedAgents": [],
+      "claimedMcpServers": [
+        "lanxi-memory_lanxi-memory"
+      ],
+      "registeredAt": "2026-11-27T03:20:45.779Z"
     }
   }
 }
