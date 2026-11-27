@@ -236,6 +236,21 @@
       "claimedAgents": [],
       "claimedMcpServers": [],
       "registeredAt": "2026-11-27T03:21:49.778Z"
+    },
+    "usage-monitor": {
+      "entrySlug": "yuhuan-dev__antigravity-usage-monitor",
+      "canonicalName": "usage-monitor",
+      "repositoryId": 1417850082,
+      "ownerId": 355444809,
+      "repoFullName": "yuhuan-dev/antigravity-usage-monitor",
+      "pluginRoot": ".",
+      "status": "active",
+      "claimedSkills": [],
+      "claimedAgents": [],
+      "claimedMcpServers": [
+        "usage-monitor_host"
+      ],
+      "registeredAt": "2026-11-27T03:22:04.828Z"
     }
   }
 }
