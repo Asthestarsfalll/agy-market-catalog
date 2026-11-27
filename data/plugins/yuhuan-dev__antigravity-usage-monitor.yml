@@ -1,0 +1,6 @@
+url: https://github.com/yuhuan-dev/antigravity-usage-monitor
+pluginRoot: .
+category: monitoring-quota
+description:
+  zh: Antigravity 全客户端用量监控：实时 TPS/TTFT/费用、10 类上下文构成、四池额度追踪与租约预占、子代理/Swarm 隔离、历史趋势热力图与项目归因排行、调用明细异常筛选、xlsx 报表导出、跨端会话迁移、按模型上下文限制。覆盖 Desktop 顶栏胶囊与侧栏、IDE 胶囊、CLI statusLine 及独立 Web，不修改 app.asar，无 npm 依赖。
+  en: "Full-stack Antigravity monitor: live TPS/TTFT/cost, 10-category context, four-pool quota with lease reservation, subagent/Swarm isolation, trend heatmaps, project rankings, anomaly filters, xlsx export, session migration and per-model context limits. Desktop/IDE capsule, CLI statusLine and web."
