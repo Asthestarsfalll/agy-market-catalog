@@ -10,12 +10,17 @@ permissions:
   pull-requests: write
   issues: write
 
+concurrency:
+  group: catalog-state-publish
+  cancel-in-progress: false
+
 jobs:
   admit-plugin:
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Checkout trusted main branch ONLY (never PR head)
+      - name: "Checkout trusted main branch ONLY (never PR head)"
         uses: actions/checkout@v4
         with:
           ref: main
@@ -25,68 +30,193 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Evaluate submission, lock state, and auto-merge or label pending:repo-age
+      - name: "Evaluate submission, lock state, and auto-merge or label pending:repo-age"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         run: |
           set -euo pipefail
-          PR_NUM=$(gh pr list --repo "$REPO" --state open --json number,headRefOid --jq ".[] | select(.headRefOid == \"$PR_HEAD_SHA\") | .number" | head -n 1)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          PR_NUM="${RUN_PR_NUMBER:-}"
+          if [ -z "$PR_NUM" ]; then
+            PR_NUM=$(gh pr list --repo "$REPO" --state open --json number,headRefOid --jq ".[] | select(.headRefOid == \"$PR_HEAD_SHA\") | .number" | head -n 1)
+          fi
           if [ -z "$PR_NUM" ]; then
             echo "No open PR matches head SHA $PR_HEAD_SHA; nothing to admit."
             exit 0
           fi
 
-          git fetch origin "${PR_HEAD_SHA}" --depth=1
-          CHANGED_YMLS=$(git diff --name-only --diff-filter=AM origin/main "${PR_HEAD_SHA}" -- 'data/plugins/*.yml')
-          if [ -z "$CHANGED_YMLS" ]; then
+          PR_META=$(gh pr view "$PR_NUM" --repo "$REPO" --json state,baseRefName,headRefOid)
+          PR_STATE=$(printf '%s' "$PR_META" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).state||''))")
+          PR_BASE=$(printf '%s' "$PR_META" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).baseRefName||''))")
+          LIVE_HEAD_SHA=$(printf '%s' "$PR_META" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).headRefOid||''))")
+          if [ "$PR_STATE" != "OPEN" ] || [ "$PR_BASE" != "main" ] || [ "$LIVE_HEAD_SHA" != "$PR_HEAD_SHA" ]; then
+            echo "Skipping PR #${PR_NUM}: state=${PR_STATE}, base=${PR_BASE}, head=${LIVE_HEAD_SHA} (expected ${PR_HEAD_SHA})"
+            exit 0
+          fi
+
+          rm -rf .tmp/pr-gate
+          mkdir -p .tmp/pr-gate/extract
+          git fetch origin "refs/pull/${PR_NUM}/head:refs/remotes/origin/pr-${PR_NUM}" --force
+          MERGE_BASE=$(git merge-base origin/main "refs/remotes/origin/pr-${PR_NUM}")
+          git diff --name-status "$MERGE_BASE" "refs/remotes/origin/pr-${PR_NUM}" > .tmp/pr-gate/diff.txt
+
+          if ! node scripts/admit-pr-helper.mjs parse-diff --input .tmp/pr-gate/diff.txt > .tmp/pr-gate/diff.json 2>.tmp/pr-gate/diff.err; then
+            ERR_MSG=$(cat .tmp/pr-gate/diff.err)
+            ERR_MSG="$ERR_MSG" node --input-type=module -e "
+              import { writeFileSync } from 'node:fs';
+              const msg = process.env.ERR_MSG || 'ERR_PR_DIFF_INVALID';
+              writeFileSync('.tmp/pr-gate/summary.json', JSON.stringify({
+                overallStatus: 'FAILED',
+                counts: { total: 1, approved: 0, pendingRepoAge: 0, failed: 1 },
+                results: [{
+                  file: 'PR diff',
+                  status: 'FAILED',
+                  canonicalName: null,
+                  version: null,
+                  sha256: null,
+                  badges: [],
+                  hostEnhancementKind: [],
+                  unlockAtUtc: null,
+                  warnings: [],
+                  error: msg,
+                }],
+              }, null, 2));
+            "
+            node scripts/admit-pr-helper.mjs format-comment --mode rejected --pr "$PR_NUM" --summary .tmp/pr-gate/summary.json --head-sha "$PR_HEAD_SHA" --run-url "$RUN_URL" \
+              | gh pr comment "$PR_NUM" --repo "$REPO" --body-file - || true
+            exit 1
+          fi
+
+          mapfile -t CHANGED_YMLS < <(node --input-type=module -e "
+            import { readFileSync } from 'node:fs';
+            const d = JSON.parse(readFileSync('.tmp/pr-gate/diff.json', 'utf8'));
+            for (const p of d.changedYmls) console.log(p);
+          ")
+          if [ "${#CHANGED_YMLS[@]}" -eq 0 ]; then
             echo "No added/modified data/plugins/*.yml entries in PR #$PR_NUM."
             exit 0
           fi
 
-          mkdir -p .tmp/pr-extract .tmp/gate-out
-          git archive "${PR_HEAD_SHA}" -- $CHANGED_YMLS | tar -x -C .tmp/pr-extract
-
-          PENDING_AGE=0
-          UNLOCK_NOTES=""
-          for rel in $CHANGED_YMLS; do
-            cp ".tmp/pr-extract/$rel" "$rel"
-            set +e
-            OUT=$(node scripts/check-submission.mjs --write-state "$rel" 2>&1)
-            CODE=$?
-            set -e
-            echo "$OUT"
-            if [ "$CODE" -eq 78 ]; then
-              PENDING_AGE=1
-              UNLOCK_AT=$(echo "$OUT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s.trim().split('\n').pop());console.log(j.unlockAtUtc||'soon')}catch{console.log('after 24h age threshold')}})")
-              UNLOCK_NOTES="${UNLOCK_NOTES}- \`${rel}\`: unlocks at **${UNLOCK_AT}**\n"
-            elif [ "$CODE" -ne 0 ]; then
-              gh pr comment "$PR_NUM" --repo "$REPO" --body "❌ **Track-1 Admission Gate Failed** for \`${rel}\`:\n\`\`\`\n${OUT}\n\`\`\`" || true
-              exit "$CODE"
+          git archive "$PR_HEAD_SHA" -- "${CHANGED_YMLS[@]}" | tar -x -C .tmp/pr-gate/extract
+          SYMLINK_ERR=""
+          for rel in "${CHANGED_YMLS[@]}"; do
+            if [ -L ".tmp/pr-gate/extract/$rel" ] || [ ! -f ".tmp/pr-gate/extract/$rel" ]; then
+              SYMLINK_ERR="ERR_PR_SYMLINK_FORBIDDEN: PR entry ${rel} must be a regular file (symlinks/non-regular entries are blocked)"
+              break
             fi
           done
+          if [ -n "$SYMLINK_ERR" ]; then
+            echo "::error::${SYMLINK_ERR}"
+            ERR_MSG="$SYMLINK_ERR" node --input-type=module -e "
+              import { writeFileSync } from 'node:fs';
+              const msg = process.env.ERR_MSG || 'ERR_PR_SYMLINK_FORBIDDEN';
+              writeFileSync('.tmp/pr-gate/summary.json', JSON.stringify({
+                overallStatus: 'FAILED',
+                counts: { total: 1, approved: 0, pendingRepoAge: 0, failed: 1 },
+                results: [{
+                  file: 'PR extract',
+                  status: 'FAILED',
+                  canonicalName: null,
+                  version: null,
+                  sha256: null,
+                  badges: [],
+                  hostEnhancementKind: [],
+                  unlockAtUtc: null,
+                  warnings: [],
+                  error: msg,
+                }],
+              }, null, 2));
+            "
+            node scripts/admit-pr-helper.mjs format-comment --mode rejected --pr "$PR_NUM" --summary .tmp/pr-gate/summary.json --head-sha "$PR_HEAD_SHA" --run-url "$RUN_URL" \
+              | gh pr comment "$PR_NUM" --repo "$REPO" --body-file - || true
+            exit 1
+          fi
+          for rel in "${CHANGED_YMLS[@]}"; do
+            mkdir -p "$(dirname "$rel")"
+            cp -P ".tmp/pr-gate/extract/$rel" "$rel"
+          done
 
-          if [ "$PENDING_AGE" -eq 1 ]; then
+          node scripts/validate-entries.mjs
+          node --test test/*.test.mjs
+
+          set +e
+          node scripts/check-submission.mjs --json-summary .tmp/pr-gate/summary.json "${CHANGED_YMLS[@]}"
+          CHECK_CODE=$?
+          set -e
+
+          if [ "$CHECK_CODE" -ne 0 ] && [ "$CHECK_CODE" -ne 78 ]; then
+            git checkout -- .
+            git clean -fd data/plugins
+            node scripts/admit-pr-helper.mjs format-comment --mode rejected --pr "$PR_NUM" --summary .tmp/pr-gate/summary.json --head-sha "$PR_HEAD_SHA" --run-url "$RUN_URL" \
+              | gh pr comment "$PR_NUM" --repo "$REPO" --body-file - || true
+            exit "$CHECK_CODE"
+          fi
+
+          if [ "$CHECK_CODE" -eq 78 ]; then
+            git checkout -- .
+            git clean -fd data/plugins
             gh label create "pending: repo-age" --repo "$REPO" --color "FBCA04" --description "Awaiting 24h repository age gate" 2>/dev/null || true
             gh pr edit "$PR_NUM" --repo "$REPO" --add-label "pending: repo-age"
-            gh pr comment "$PR_NUM" --repo "$REPO" --body "$(printf "⏳ **All static, tarball, and anti-collision checks passed!**\n\nThis repository is newer than 24 hours (\`MIN_AGE_DAYS = 1\`). \`regate.yml\` runs every 6 hours and will automatically re-verify and squash-merge once eligible:\n%b" "$UNLOCK_NOTES")"
+            node scripts/admit-pr-helper.mjs format-comment --mode pending-age --pr "$PR_NUM" --summary .tmp/pr-gate/summary.json --head-sha "$PR_HEAD_SHA" --run-url "$RUN_URL" \
+              | gh pr comment "$PR_NUM" --repo "$REPO" --body-file -
             exit 0
           fi
 
-          mkdir -p .tmp/approved-state
-          cp -r state/* .tmp/approved-state/
           git checkout -- .
-          git clean -fd data/plugins/
+          git clean -fd data/plugins
 
-          gh pr merge "$PR_NUM" --repo "$REPO" --squash
-          git pull --rebase origin main
-          cp -r .tmp/approved-state/* state/
+          gh pr merge "$PR_NUM" --repo "$REPO" --squash --match-head-commit "$PR_HEAD_SHA"
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state/
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(admit): record ledger and release lock for PR #${PR_NUM}"
-            git push origin HEAD:main
+          PUSHED=0
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            node scripts/check-submission.mjs --write-state --json-summary .tmp/pr-gate/locked-summary.json "${CHANGED_YMLS[@]}"
+            node scripts/sync-readme-tables.mjs --write
+            git add state/
+            [ -f README.md ] && git add README.md || true
+            [ -f README.en.md ] && git add README.en.md || true
+            if git diff --cached --quiet; then
+              PUSHED=1
+              break
+            fi
+            git commit -m "chore(admit): lock ledger & release state for PR #${PR_NUM}"
+            if git push origin HEAD:main; then
+              PUSHED=1
+              break
+            fi
+            sleep $((attempt * 3))
+          done
+
+          if [ "$PUSHED" -ne 1 ]; then
+            echo "::error::Failed to push locked state for PR #${PR_NUM} after 3 attempts"
+            exit 1
           fi
+
+          gh pr edit "$PR_NUM" --repo "$REPO" --remove-label "pending: repo-age" 2>/dev/null || true
+          node scripts/admit-pr-helper.mjs format-comment --mode approved --pr "$PR_NUM" --summary .tmp/pr-gate/locked-summary.json --head-sha "$PR_HEAD_SHA" --run-url "$RUN_URL" \
+            | gh pr comment "$PR_NUM" --repo "$REPO" --body-file - || true
+
+          rm -rf .tmp/gh-pages-seed .tmp/gh-pages
+          mkdir -p .tmp/gh-pages-seed/readmes .tmp/gh-pages
+          if git fetch --depth=1 origin gh-pages 2>/dev/null; then
+            git archive origin/gh-pages -- readmes 2>/dev/null | tar -x -C .tmp/gh-pages-seed || true
+          fi
+          node scripts/build-catalog.mjs --seed-readmes-dir=.tmp/gh-pages-seed/readmes --gc-icons
+          cp -r dist/* .tmp/gh-pages/
+          touch .tmp/gh-pages/.nojekyll
+          (
+            cd .tmp/gh-pages
+            git init -b gh-pages
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "chore(catalog): publish compiled catalog after PR #${PR_NUM} admission"
+            git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages:gh-pages
+          )

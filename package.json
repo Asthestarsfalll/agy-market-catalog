@@ -31,6 +31,7 @@
     "sync": "node scripts/sync-releases.mjs",
     "crawl": "node scripts/crawl-topics.mjs",
     "build": "node scripts/build-catalog.mjs",
+    "sync:readme": "node scripts/sync-readme-tables.mjs --write",
     "publish:npm": "node scripts/publish-catalog-npm.mjs",
     "test": "node --test test/*.test.mjs"
   }

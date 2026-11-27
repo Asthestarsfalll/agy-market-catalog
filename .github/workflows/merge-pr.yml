@@ -1,0 +1,405 @@
+name: Maintainer One-Click Plugin PR Merge (Fork-Safe)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number (e.g. 2), comma-separated list (e.g. 2,3,4), or "all" for all open plugin PRs'
+        required: true
+        type: string
+      dry_run:
+        description: 'Validate and comment on PR(s) without merging or writing state'
+        required: false
+        default: false
+        type: boolean
+      skip_age_check:
+        description: 'Override 24h MIN_AGE_DAYS gate (maintainer override only)'
+        required: false
+        default: false
+        type: boolean
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: catalog-state-publish
+  cancel-in-progress: false
+
+jobs:
+  merge-plugin-pr:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+        (contains(github.event.comment.body, '/merge') || contains(github.event.comment.body, '/admit'))
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: "Checkout trusted main branch ONLY (never PR head)"
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: "Resolve target PR numbers and execution flags"
+        id: resolve
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_SKIP_AGE_CHECK: ${{ inputs.skip_age_check }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
+          IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            AUTH_JSON=$(node scripts/admit-pr-helper.mjs authorize-comment)
+            echo "$AUTH_JSON"
+            AUTHORIZED=$(printf '%s' "$AUTH_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).authorized ? 'true' : 'false'))")
+            if [ "$AUTHORIZED" != "true" ]; then
+              echo "Ignoring non-command or unauthorized comment."
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            DRY_RUN=$(printf '%s' "$AUTH_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).dryRun ? 'true' : 'false'))")
+            SKIP_AGE=$(printf '%s' "$AUTH_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).skipAgeCheck ? 'true' : 'false'))")
+            gh api "repos/${REPO}/issues/comments/${COMMENT_ID}/reactions" -f content=rocket >/dev/null 2>&1 || true
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "pr_numbers=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
+            echo "skip_age_check=${SKIP_AGE}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          RAW_INPUT=$(printf '%s' "$INPUT_PR_NUMBER" | tr -d '\r' | xargs)
+          LOWER_INPUT=$(printf '%s' "$RAW_INPUT" | tr '[:upper:]' '[:lower:]')
+          if [ "$LOWER_INPUT" = "all" ]; then
+            PR_NUMBERS=$(gh pr list --repo "$REPO" --state open --base main --limit 100 --json number,files | node --input-type=module -e "
+              import { readFileSync } from 'node:fs';
+              const prs = JSON.parse(readFileSync(0, 'utf8'));
+              const nums = prs
+                .filter((pr) => Array.isArray(pr.files) && pr.files.some((f) => /^data\/plugins\/[^/]+\.yml$/.test(f.path)))
+                .map((pr) => Number(pr.number))
+                .filter((n) => Number.isInteger(n) && n > 0)
+                .sort((a, b) => a - b);
+              console.log([...new Set(nums)].join(','));
+            ")
+          else
+            PR_NUMBERS=$(RAW_INPUT="$RAW_INPUT" node --input-type=module -e "
+              const raw = (process.env.RAW_INPUT || '').trim();
+              const parts = raw.split(/[\s,]+/).filter(Boolean);
+              if (parts.length === 0) throw new Error('pr_number input must not be empty');
+              const nums = [];
+              for (const p of parts) {
+                if (!/^\d+$/.test(p) || Number(p) <= 0) {
+                  throw new Error('Invalid PR number token: ' + p);
+                }
+                nums.push(Number(p));
+              }
+              const uniqueSorted = [...new Set(nums)].sort((a, b) => a - b);
+              console.log(uniqueSorted.join(','));
+            ")
+          fi
+
+          if [ -z "$PR_NUMBERS" ]; then
+            echo "No matching open plugin PRs found."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "pr_numbers=${PR_NUMBERS}" >> "$GITHUB_OUTPUT"
+          echo "dry_run=${INPUT_DRY_RUN:-false}" >> "$GITHUB_OUTPUT"
+          echo "skip_age_check=${INPUT_SKIP_AGE_CHECK:-false}" >> "$GITHUB_OUTPUT"
+
+      - name: "Validate, merge, lock state, sync READMEs, and publish catalog"
+        if: ${{ steps.resolve.outputs.should_run == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBERS: ${{ steps.resolve.outputs.pr_numbers }}
+          DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
+          SKIP_AGE_CHECK: ${{ steps.resolve.outputs.skip_age_check }}
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          IFS=',' read -ra PR_ARRAY <<< "$PR_NUMBERS"
+          MERGED_COUNT=0
+          FAIL_COUNT=0
+
+          for PR_NUM in "${PR_ARRAY[@]}"; do
+            [ -z "$PR_NUM" ] && continue
+            echo "=== Processing PR #${PR_NUM} (dry_run=${DRY_RUN}, skip_age_check=${SKIP_AGE_CHECK}) ==="
+
+            rm -rf .tmp/pr-run
+            mkdir -p .tmp/pr-run/extract
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fd data/plugins
+
+            if ! PR_META=$(gh pr view "$PR_NUM" --repo "$REPO" --json number,state,headRefOid,baseRefName,url,title,author,files 2>&1); then
+              echo "::error::Failed to resolve PR #${PR_NUM}: ${PR_META}"
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              continue
+            fi
+
+            PR_STATE=$(printf '%s' "$PR_META" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).state||''))")
+            PR_BASE=$(printf '%s' "$PR_META" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).baseRefName||''))")
+            PR_HEAD_SHA=$(printf '%s' "$PR_META" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).headRefOid||''))")
+
+            if [ "$PR_STATE" != "OPEN" ] || [ "$PR_BASE" != "main" ]; then
+              echo "::warning::Skipping PR #${PR_NUM} (state=${PR_STATE}, base=${PR_BASE})"
+              if [ "${#PR_ARRAY[@]}" -eq 1 ]; then
+                FAIL_COUNT=$((FAIL_COUNT + 1))
+              fi
+              continue
+            fi
+
+            git fetch origin "refs/pull/${PR_NUM}/head:refs/remotes/origin/pr-${PR_NUM}" --force
+            PR_HEAD_SHA=$(git rev-parse "refs/remotes/origin/pr-${PR_NUM}")
+            MERGE_BASE=$(git merge-base origin/main "refs/remotes/origin/pr-${PR_NUM}")
+            git diff --name-status "$MERGE_BASE" "refs/remotes/origin/pr-${PR_NUM}" > .tmp/pr-run/diff.txt
+
+            if ! node scripts/admit-pr-helper.mjs parse-diff --input .tmp/pr-run/diff.txt > .tmp/pr-run/diff.json 2>.tmp/pr-run/diff.err; then
+              ERR_MSG=$(cat .tmp/pr-run/diff.err)
+              echo "::error::PR #${PR_NUM} failed diff guardrails: ${ERR_MSG}"
+              ERR_MSG="$ERR_MSG" node --input-type=module -e "
+                import { writeFileSync } from 'node:fs';
+                const msg = process.env.ERR_MSG || 'ERR_PR_DIFF_INVALID';
+                writeFileSync('.tmp/pr-run/summary.json', JSON.stringify({
+                  overallStatus: 'FAILED',
+                  counts: { total: 1, approved: 0, pendingRepoAge: 0, failed: 1 },
+                  results: [{
+                    file: 'PR diff',
+                    status: 'FAILED',
+                    canonicalName: null,
+                    version: null,
+                    sha256: null,
+                    badges: [],
+                    hostEnhancementKind: [],
+                    unlockAtUtc: null,
+                    warnings: [],
+                    error: msg,
+                  }],
+                }, null, 2));
+              "
+              node scripts/admit-pr-helper.mjs format-comment --mode rejected --pr "$PR_NUM" --summary .tmp/pr-run/summary.json --head-sha "$PR_HEAD_SHA" --run-url "$RUN_URL" \
+                | gh pr comment "$PR_NUM" --repo "$REPO" --body-file - || true
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              continue
+            fi
+
+            mapfile -t CHANGED_YMLS < <(node --input-type=module -e "
+              import { readFileSync } from 'node:fs';
+              const d = JSON.parse(readFileSync('.tmp/pr-run/diff.json', 'utf8'));
+              for (const p of d.changedYmls) console.log(p);
+            ")
+
+            if [ "${#CHANGED_YMLS[@]}" -eq 0 ]; then
+              echo "::warning::PR #${PR_NUM} contains no added or modified data/plugins/*.yml files."
+              continue
+            fi
+
+            git archive "$PR_HEAD_SHA" -- "${CHANGED_YMLS[@]}" | tar -x -C .tmp/pr-run/extract
+            SYMLINK_ERR=""
+            for rel in "${CHANGED_YMLS[@]}"; do
+              if [ -L ".tmp/pr-run/extract/$rel" ] || [ ! -f ".tmp/pr-run/extract/$rel" ]; then
+                SYMLINK_ERR="ERR_PR_SYMLINK_FORBIDDEN: PR entry ${rel} must be a regular file (symlinks/non-regular entries are blocked)"
+                break
+              fi
+            done
+            if [ -n "$SYMLINK_ERR" ]; then
+              echo "::error::${SYMLINK_ERR}"
+              ERR_MSG="$SYMLINK_ERR" node --input-type=module -e "
+                import { writeFileSync } from 'node:fs';
+                const msg = process.env.ERR_MSG || 'ERR_PR_SYMLINK_FORBIDDEN';
+                writeFileSync('.tmp/pr-run/summary.json', JSON.stringify({
+                  overallStatus: 'FAILED',
+                  counts: { total: 1, approved: 0, pendingRepoAge: 0, failed: 1 },
+                  results: [{
+                    file: 'PR extract',
+                    status: 'FAILED',
+                    canonicalName: null,
+                    version: null,
+                    sha256: null,
+                    badges: [],
+                    hostEnhancementKind: [],
+                    unlockAtUtc: null,
+                    warnings: [],
+                    error: msg,
+                  }],
+                }, null, 2));
+              "
+              node scripts/admit-pr-helper.mjs format-comment --mode rejected --pr "$PR_NUM" --summary .tmp/pr-run/summary.json --head-sha "$PR_HEAD_SHA" --run-url "$RUN_URL" \
+                | gh pr comment "$PR_NUM" --repo "$REPO" --body-file - || true
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              continue
+            fi
+            for rel in "${CHANGED_YMLS[@]}"; do
+              mkdir -p "$(dirname "$rel")"
+              cp -P ".tmp/pr-run/extract/$rel" "$rel"
+            done
+
+            set +e
+            VAL_OUT=$( { node scripts/validate-entries.mjs && node --test test/*.test.mjs; } 2>&1 )
+            VAL_CODE=$?
+            set -e
+            echo "$VAL_OUT"
+            if [ "$VAL_CODE" -ne 0 ]; then
+              git checkout -- .
+              git clean -fd data/plugins
+              VAL_OUT="$VAL_OUT" node --input-type=module -e "
+                import { readFileSync, writeFileSync } from 'node:fs';
+                const files = JSON.parse(readFileSync('.tmp/pr-run/diff.json', 'utf8')).changedYmls;
+                const msg = (process.env.VAL_OUT || 'Tier-1 validation failed').slice(-1800);
+                writeFileSync('.tmp/pr-run/summary.json', JSON.stringify({
+                  overallStatus: 'FAILED',
+                  counts: { total: files.length, approved: 0, pendingRepoAge: 0, failed: files.length },
+                  results: files.map((f, idx) => ({
+                    file: f,
+                    status: 'FAILED',
+                    canonicalName: null,
+                    version: null,
+                    sha256: null,
+                    badges: [],
+                    hostEnhancementKind: [],
+                    unlockAtUtc: null,
+                    warnings: [],
+                    error: idx === 0 ? msg : 'See validation diagnostics above',
+                  })),
+                }, null, 2));
+              "
+              node scripts/admit-pr-helper.mjs format-comment --mode rejected --pr "$PR_NUM" --summary .tmp/pr-run/summary.json --head-sha "$PR_HEAD_SHA" --run-url "$RUN_URL" \
+                | gh pr comment "$PR_NUM" --repo "$REPO" --body-file - || true
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              continue
+            fi
+
+            CHECK_ARGS=(--json-summary .tmp/pr-run/summary.json)
+            if [ "$SKIP_AGE_CHECK" = "true" ]; then
+              CHECK_ARGS+=(--allow-pending-age)
+            fi
+
+            set +e
+            node scripts/check-submission.mjs "${CHECK_ARGS[@]}" "${CHANGED_YMLS[@]}"
+            CHECK_CODE=$?
+            set -e
+
+            if [ "$CHECK_CODE" -ne 0 ] && [ "$CHECK_CODE" -ne 78 ]; then
+              git checkout -- .
+              git clean -fd data/plugins
+              node scripts/admit-pr-helper.mjs format-comment --mode rejected --pr "$PR_NUM" --summary .tmp/pr-run/summary.json --head-sha "$PR_HEAD_SHA" --run-url "$RUN_URL" \
+                | gh pr comment "$PR_NUM" --repo "$REPO" --body-file - || true
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              continue
+            fi
+
+            if [ "$CHECK_CODE" -eq 78 ]; then
+              git checkout -- .
+              git clean -fd data/plugins
+              gh label create "pending: repo-age" --repo "$REPO" --color "FBCA04" --description "Awaiting 24h repository age gate" 2>/dev/null || true
+              gh pr edit "$PR_NUM" --repo "$REPO" --add-label "pending: repo-age" || true
+              node scripts/admit-pr-helper.mjs format-comment --mode pending-age --pr "$PR_NUM" --summary .tmp/pr-run/summary.json --head-sha "$PR_HEAD_SHA" --run-url "$RUN_URL" \
+                | gh pr comment "$PR_NUM" --repo "$REPO" --body-file - || true
+              continue
+            fi
+
+            if [ "$DRY_RUN" = "true" ]; then
+              git checkout -- .
+              git clean -fd data/plugins
+              node scripts/admit-pr-helper.mjs format-comment --mode dry-run --pr "$PR_NUM" --summary .tmp/pr-run/summary.json --head-sha "$PR_HEAD_SHA" --run-url "$RUN_URL" \
+                | gh pr comment "$PR_NUM" --repo "$REPO" --body-file -
+              continue
+            fi
+
+            git checkout -- .
+            git clean -fd data/plugins
+
+            if ! gh pr merge "$PR_NUM" --repo "$REPO" --squash --match-head-commit "$PR_HEAD_SHA"; then
+              echo "::error::gh pr merge failed for PR #${PR_NUM} (head SHA ${PR_HEAD_SHA} may have changed)"
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              continue
+            fi
+
+            WRITE_ARGS=(--write-state --json-summary .tmp/pr-run/locked-summary.json)
+            if [ "$SKIP_AGE_CHECK" = "true" ]; then
+              WRITE_ARGS+=(--allow-pending-age)
+            fi
+
+            PUSHED=0
+            for attempt in 1 2 3; do
+              git fetch origin main
+              git reset --hard origin/main
+              node scripts/check-submission.mjs "${WRITE_ARGS[@]}" "${CHANGED_YMLS[@]}"
+              node scripts/sync-readme-tables.mjs --write
+              git add state/
+              [ -f README.md ] && git add README.md || true
+              [ -f README.en.md ] && git add README.en.md || true
+              if git diff --cached --quiet; then
+                PUSHED=1
+                break
+              fi
+              git commit -m "chore(admit): lock ledger & release state for PR #${PR_NUM}"
+              if git push origin HEAD:main; then
+                PUSHED=1
+                break
+              fi
+              sleep $((attempt * 3))
+            done
+
+            if [ "$PUSHED" -ne 1 ]; then
+              echo "::error::Failed to push locked state for PR #${PR_NUM} after 3 attempts"
+              exit 1
+            fi
+
+            MERGED_COUNT=$((MERGED_COUNT + 1))
+            gh pr edit "$PR_NUM" --repo "$REPO" --remove-label "pending: repo-age" 2>/dev/null || true
+            node scripts/admit-pr-helper.mjs format-comment --mode approved --pr "$PR_NUM" --summary .tmp/pr-run/locked-summary.json --head-sha "$PR_HEAD_SHA" --run-url "$RUN_URL" \
+              | gh pr comment "$PR_NUM" --repo "$REPO" --body-file - || true
+          done
+
+          if [ "$MERGED_COUNT" -gt 0 ]; then
+            git fetch origin main
+            git reset --hard origin/main
+            rm -rf .tmp/gh-pages-seed .tmp/gh-pages
+            mkdir -p .tmp/gh-pages-seed/readmes .tmp/gh-pages
+            if git fetch --depth=1 origin gh-pages 2>/dev/null; then
+              git archive origin/gh-pages -- readmes 2>/dev/null | tar -x -C .tmp/gh-pages-seed || true
+            fi
+            node scripts/build-catalog.mjs --seed-readmes-dir=.tmp/gh-pages-seed/readmes --gc-icons
+            cp -r dist/* .tmp/gh-pages/
+            touch .tmp/gh-pages/.nojekyll
+            (
+              cd .tmp/gh-pages
+              git init -b gh-pages
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add -A
+              git commit -m "chore(catalog): publish compiled catalog after PR admission"
+              git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages:gh-pages
+            )
+          fi
+
+          if [ "$FAIL_COUNT" -gt 0 ]; then
+            echo "::error::${FAIL_COUNT} PR(s) failed validation or merge checks."
+            exit 1
+          fi

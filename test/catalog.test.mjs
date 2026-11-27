@@ -24,6 +24,7 @@ import {
   compareSemver,
   MAX_RULE_FILE_BYTES,
   MAX_TARBALL_BYTES,
+  normalizeRelPosix,
 } from '../scripts/lib/constants.mjs';
 import { CURATED_TAXONOMY_OVERRIDES, inferPluginTaxonomy } from '../scripts/lib/taxonomy-classifier.mjs';
 import {
@@ -2121,9 +2122,111 @@ test('Real catalog compilation preserves all 17 core plugins accurately and clas
     catalogVersion: '2026.1124.2',
   });
 
-  assert.equal(built.indexJson.plugins.length, 4);
-  assert.equal(built.unverifiedIndexJson.plugins.length, unverifiedCache.plugins.length);
+  const expectedVerifiedCount = Object.values(ledger.entries || {}).filter((rec) => {
+    if (!rec || rec.status === 'REPOJACKING_BLOCKED' || rec.status === 'DEPRECATED_GONE') return false;
+    const lock = versionsLock.locks?.[rec.entrySlug];
+    return Boolean(lock?.latest && lock.versions?.[lock.latest]);
+  }).length;
+  assert.ok(expectedVerifiedCount >= 4, `Expected >=4 active Track-1 entries, got ${expectedVerifiedCount}`);
+  assert.equal(built.indexJson.plugins.length, expectedVerifiedCount);
+
+  const track1Ids = new Set(built.indexJson.plugins.map((p) => p.id));
+  const track1RepoRoots = new Set(
+    built.indexJson.plugins
+      .filter((p) => Number(p.repository?.repositoryId) > 0)
+      .map((p) => `${p.repository.repositoryId}:${normalizeRelPosix(p.repository?.pluginRoot || '.')}`),
+  );
+  const track1RepoUrlRoots = new Set(
+    built.indexJson.plugins
+      .filter((p) => p.repository?.url)
+      .map(
+        (p) =>
+          `${String(p.repository.url).toLowerCase().replace(/\/+$/, '')}:${normalizeRelPosix(p.repository?.pluginRoot || '.')}`,
+      ),
+  );
+  const seenUnverifiedIds = new Set();
+  const seenUnverifiedRepoRoots = new Set();
+  let expectedUnverifiedCount = 0;
+  for (const p of unverifiedCache.plugins || []) {
+    if (!p || !p.id) continue;
+    const normRoot = normalizeRelPosix(p.repository?.pluginRoot || '.');
+    const repoId = Number(p.repository?.repositoryId || 0);
+    const repoRootKey = repoId > 0 ? `${repoId}:${normRoot}` : '';
+    const repoUrlRootKey = p.repository?.url
+      ? `${String(p.repository.url).toLowerCase().replace(/\/+$/, '')}:${normRoot}`
+      : '';
+    if (track1Ids.has(p.id)) continue;
+    if (repoRootKey && track1RepoRoots.has(repoRootKey)) continue;
+    if (repoUrlRootKey && track1RepoUrlRoots.has(repoUrlRootKey)) continue;
+    if (seenUnverifiedIds.has(p.id)) continue;
+    if (repoRootKey && seenUnverifiedRepoRoots.has(repoRootKey)) continue;
+    seenUnverifiedIds.add(p.id);
+    if (repoRootKey) seenUnverifiedRepoRoots.add(repoRootKey);
+    expectedUnverifiedCount += 1;
+  }
+  assert.equal(built.unverifiedIndexJson.plugins.length, expectedUnverifiedCount);
   assert.ok(built.unverifiedIndexJson.plugins.length >= 800, 'Expected full cloud Track-2 catalog (>=800 plugins)');
+
+  // Verify promoting a Track-2 entry into Track 1 deduplicates it cleanly out of unverifiedIndexJson
+  const promoCandidate = built.unverifiedIndexJson.plugins[0];
+  assert.ok(promoCandidate, 'Expected at least one Track-2 plugin for promotion check');
+  const promoRepoFullName = String(promoCandidate.repository?.url || '')
+    .replace(/^https:\/\/github\.com\//i, '')
+    .replace(/\/+$/, '');
+  const promoLedger = structuredClone(ledger);
+  promoLedger.entries[promoCandidate.canonicalName] = {
+    entrySlug: promoCandidate.id,
+    canonicalName: promoCandidate.canonicalName,
+    repositoryId: promoCandidate.repository?.repositoryId || 999999001,
+    ownerId: promoCandidate.repository?.ownerId || 999999002,
+    repoFullName: promoRepoFullName,
+    pluginRoot: promoCandidate.repository?.pluginRoot || '.',
+    status: 'active',
+    claimedSkills: [],
+    claimedAgents: [],
+    claimedMcpServers: [],
+    registeredAt: '2026-11-27T00:00:00.000Z',
+  };
+  const promoLocks = structuredClone(versionsLock);
+  promoLocks.locks[promoCandidate.id] = {
+    latest: promoCandidate.version || '1.0.0',
+    versions: {
+      [promoCandidate.version || '1.0.0']: {
+        gitTag: promoCandidate.gitTag || 'v1.0.0',
+        commitSha: promoCandidate.commitSha || COMMIT_A,
+        tarballUrl: promoCandidate.distribution?.tarballUrl || 'https://example.invalid/promo.tar.gz',
+        sha256: promoCandidate.distribution?.sha256 || '0'.repeat(64),
+        sizeBytes: promoCandidate.distribution?.sizeBytes || 1024,
+        publishedAt: promoCandidate.updatedAt || '2026-11-27T00:00:00.000Z',
+        manifest: { name: promoCandidate.canonicalName, displayName: promoCandidate.displayName, description: promoCandidate.description?.en || 'Promoted plugin', version: promoCandidate.version || '1.0.0' },
+        companion: {},
+        capabilities: promoCandidate.capabilities || { badges: [] },
+        stars: promoCandidate.repository?.stars || 0,
+      },
+    },
+  };
+  const promoEntries = [
+    ...entries,
+    {
+      entrySlug: promoCandidate.id,
+      repoFullName: promoRepoFullName,
+      pluginRoot: promoCandidate.repository?.pluginRoot || '.',
+      category: promoCandidate.taxonomy?.categories?.[0] || 'productivity',
+      description: promoCandidate.description || { zh: '测试晋升插件', en: 'Promoted Track-2 plugin' },
+    },
+  ];
+  const promotedBuilt = compileCatalogArtifacts({
+    entries: promoEntries,
+    ledger: promoLedger,
+    versionsLock: promoLocks,
+    unverifiedCache,
+    generatedAt: '2026-11-24T12:00:00.000Z',
+    catalogVersion: '2026.1124.2',
+  });
+  assert.equal(promotedBuilt.indexJson.plugins.length, built.indexJson.plugins.length + 1);
+  assert.equal(promotedBuilt.unverifiedIndexJson.plugins.length, built.unverifiedIndexJson.plugins.length - 1);
+  assert.ok(promotedBuilt.indexJson.plugins.some((p) => p.id === promoCandidate.id));
+  assert.equal(promotedBuilt.unverifiedIndexJson.plugins.some((p) => p.id === promoCandidate.id), false);
 
   const allPlugins = [...built.indexJson.plugins, ...built.unverifiedIndexJson.plugins];
   const byId = new Map(allPlugins.map((p) => [p.id, p]));

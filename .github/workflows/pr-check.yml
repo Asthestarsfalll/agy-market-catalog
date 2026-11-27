@@ -14,6 +14,7 @@ permissions:
 jobs:
   lint-entries:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,26 +24,16 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Enforce PR file path & count guardrails
+      - name: "Enforce PR file path & count guardrails"
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          node --input-type=module -e "
-            import { execFileSync } from 'node:child_process';
-            import { validatePrDiffLimits } from './scripts/validate-entries.mjs';
-            const out = execFileSync('git', ['diff', '--name-status', process.env.BASE_SHA, process.env.HEAD_SHA], { encoding: 'utf8' });
-            const addedOrModified = [];
-            const deleted = [];
-            for (const line of out.trim().split('\n').filter(Boolean)) {
-              const [status, file] = line.split(/\t+/);
-              if (status.startsWith('D')) deleted.push(file);
-              else addedOrModified.push(file);
-            }
-            validatePrDiffLimits({ addedOrModified, deleted });
-          "
+          set -euo pipefail
+          MERGE_BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || echo "$BASE_SHA")
+          git diff --name-status "$MERGE_BASE" "$HEAD_SHA" | node scripts/admit-pr-helper.mjs parse-diff
 
-      - name: Validate submission YAML schemas & run unit tests
+      - name: "Validate submission YAML schemas & run unit tests"
         run: |
           node scripts/validate-entries.mjs
           node --test test/*.test.mjs

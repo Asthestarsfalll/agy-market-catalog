@@ -4,63 +4,93 @@
 
 **Zero-Backend GitOps Plugin Registry & Automated Indexing Engine for Google Antigravity**
 
-1-YAML Conflict-Free Submissions · Zero-PR Release Sync · Two-Layer Namespace Anti-Collision · Multilingual `README.zh-CN.md` Extraction · Track-2 `topic:antigravity-plugin` Discovery · 4-Layer Permissive Capability Scanner · Dual Global + China Mirror Delivery
+1-YAML Conflict-Free Submissions · Fork-Safe One-Click Maintainer `/merge` · Zero-PR Release Sync · Two-Layer Anti-Collision & Anti-RepoJacking · Always-On `PRIVILEGE_REVIEW` Guard · Lazy Per-Plugin READMEs (`dist/readmes/<id>.json`) · Tier-0 Nomination + Track-2 Multi-Source Discovery · 4-Layer Permissive Scanner
 
-[简体中文](./README.md) · **English** · **[📖 Submission Guide (简体中文)](./docs/SUBMISSION_GUIDE.md)** · [AGY Market Client](https://github.com/azwosile/agy-market) · [Architecture & CI Spec](./AGENTS.md)
+[简体中文](./README.md) · **English** · **[📖 Plugin Submission Guide](./docs/SUBMISSION_GUIDE.en.md)** · [简体中文收录教程](./docs/SUBMISSION_GUIDE.md) · [AGY Market Client](https://github.com/azwosile/agy-market) · [Architecture & CI Spec](./AGENTS.md)
 
 </div>
 
 ---
 
-> **🚀 Submit Your Plugin in 5 Minutes!**
+> **🚀 Quick Start for Plugin Authors & Community**
 >
-> Read the full step-by-step **[📖 Plugin Submission Guide (`docs/SUBMISSION_GUIDE.md`, Simplified Chinese)](./docs/SUBMISSION_GUIDE.md)** with copy-pasteable `plugin.json`, `agy-market.json`, YAML templates, all 15 categories, packaging commands, and local pre-flight checks.
+> 👉 Read the complete step-by-step **[📖 Plugin Submission Guide (`docs/SUBMISSION_GUIDE.en.md`)](./docs/SUBMISSION_GUIDE.en.md)** (copy-pasteable `plugin.json`, `agy-market.json`, YAML templates, all 15 categories, packaging commands, and error code FAQ).
 >
-> - **Track 1 (Recommended — Curated Catalog)**: Submit **1 flat YAML PR** once → automated CI admission & squash-merge → **future SemVer releases sync automatically every 30m with 0 PRs**.
-> - **Track 2 (Experimental — Zero-PR Auto-Discovery)**: Add GitHub Topic `antigravity-plugin` and publish a SemVer Release → indexed every 6h with automatic `<owner>--<slug>` collision-safe isolation.
+> - **Track 1 (Recommended — Curated Catalog)**: Submit **1 flat YAML PR** once → fork-safe CI validation (with **one-click Actions dispatch** or PR comment `/merge`) → **future SemVer releases sync automatically every 30m with 0 PRs**.
+> - **Track 2 (Experimental — Zero-PR Multi-Source Discovery, `848+` plugins indexed)**: Add GitHub Topic `antigravity-plugin` (or ship `.antigravity-plugin/plugin.json`, `.agents/plugins/*`, etc.) → indexed every 6h with automatic `<owner>--<slug>` collision-safe isolation.
+> - **Tier-0 Community Nomination (Zero-PR to Track 2)**: Submit the [Community Nomination Issue Form](./.github/ISSUE_TEMPLATE/nominate-plugin.yml) (`community-discovery` label) to immediately validate and index any public plugin repo into Track 2.
+> - **Language-Agnostic & Host Enhancements Welcome**: Pure Markdown (`skills/` / `rules/` / `agents/`), Sidecar UI panels, and Python / Rust / Go / Node MCP servers require **zero npm publishing**; CDP and `app.asar` host UI enhancements are **100% welcome**.
 
-> This repository ([`azwosile/agy-market-catalog`](https://github.com/azwosile/agy-market-catalog)) powers the zero-backend plugin registry for **[AGY Market](https://github.com/azwosile/agy-market)**, delivering compiled static feeds via **GitHub Pages** (`https://azwosile.github.io/agy-market-catalog/index.json`, with `gh-pages` raw fallback at `https://raw.githubusercontent.com/azwosile/agy-market-catalog/gh-pages/index.json`) and the OIDC-attested pure-JSON **`@agy-market/catalog`** npm mirror transport package (`registry.npmmirror.com` / Tencent Cloud).
+> This repository ([`azwosile/agy-market-catalog`](https://github.com/azwosile/agy-market-catalog)) powers the zero-backend plugin registry for **[AGY Market](https://github.com/azwosile/agy-market)**.
+>
+> - **Active Delivery Channels**: **GitHub Pages** ([`index.json`](https://azwosile.github.io/agy-market-catalog/index.json) · [`unverified-index.json`](https://azwosile.github.io/agy-market-catalog/unverified-index.json)) and **`gh-pages` Raw fallback** ([`raw index.json`](https://raw.githubusercontent.com/azwosile/agy-market-catalog/gh-pages/index.json)).
+> - **Optional Opt-In npm Mirror**: `sync-catalog.yml` includes an opt-in step (`NPM_PUBLISH_ENABLED=true` + `NPM_TOKEN`) to publish `@agy-market/catalog` as a pure-JSON transport package for npm mirrors (`registry.npmmirror.com` / Tencent Cloud). **It is currently disabled by default**; clients use GitHub Pages and `gh-pages` Raw directly.
+
+---
+
+## 💻 Install AGY Market Client
+
+> Requires **Node.js >= 22.0.0** for `npx`, or use the standalone zero-npm OS installers below.
+
+```bash
+# Recommended: bootstrap directly from GitHub (no npm registry dependency)
+npx --yes github:azwosile/agy-market
+```
+
+```powershell
+# Windows PowerShell (no npm required, SHA-256 verified)
+irm https://raw.githubusercontent.com/azwosile/agy-market/main/scripts/install.ps1 | iex
+```
+
+```sh
+# macOS / Linux Shell (no npm required, SHA-256 verified)
+curl -fsSL https://raw.githubusercontent.com/azwosile/agy-market/main/scripts/install.sh | sh
+```
 
 ---
 
 ## 📦 Verified Catalog Entries (Track 1)
 
-| ID | Canonical Name | Version | Repository | Capability Badges |
-| :--- | :--- | :--- | :--- | :--- |
-| `azwosile__agy-market` | `agy-market` | `1.1.0` | [`azwosile/agy-market`](https://github.com/azwosile/agy-market) | `sidecar-ui` |
-| `azwosile__agy-wallpaper-prism` | `agy-wallpaper-prism` | `2.0.5` | [`azwosile/agy-wallpaper-prism`](https://github.com/azwosile/agy-wallpaper-prism) | `sidecar-ui`, `host-enhancement` (`cdp`) |
-| `yunjuanyunshu114-byte__antigravity-observer` | `gemini-neko-cockpit` | `1.2.0` | [`yunjuanyunshu114-byte/antigravity-observer`](https://github.com/yunjuanyunshu114-byte/antigravity-observer) | `sidecar-ui`, `host-enhancement` (`app-asar`) |
-| `zou172866__agy-dart` | `agy-dart` | `1.7.0` | [`zou172866/agy-dart`](https://github.com/zou172866/agy-dart) | `global-rules`, `sidecar-ui`, `mcp-stdio`, `lifecycle-hooks` |
+> This table is generated automatically by `scripts/sync-readme-tables.mjs` from `state/ledger.json`, `state/versions-lock.json`, and `data/plugins/*.yml`.
+
+<!-- CATALOG-TABLE:START -->
+| Catalog ID | Canonical Name | Version | GitHub Repository | Capability Badges | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `azwosile__agy-market` | `agy-market` | `1.7.1` | [`azwosile/agy-market`](https://github.com/azwosile/agy-market) | `sidecar-ui`, `host-enhancement` (`cdp`) | Community plugin marketplace Sidebar panel & CLI for Google Antigravity with SHA-256 archive verification, conflict checks, and one-click updates. |
+| `azwosile__agy-wallpaper-prism` | `agy-wallpaper-prism` | `2.3.0` | [`azwosile/agy-wallpaper-prism`](https://github.com/azwosile/agy-wallpaper-prism) | `sidecar-ui`, `host-enhancement` (`cdp`) | Obsidian Prism glass skin and Wallpaper Engine studio for Antigravity with Floating Island layouts, dynamic accent tinting, and Ctrl+Alt+W controls. |
+| `yunjuanyunshu114-byte__antigravity-observer` | `gemini-neko-cockpit` | `1.3.0` | [`yunjuanyunshu114-byte/antigravity-observer`](https://github.com/yunjuanyunshu114-byte/antigravity-observer) | `sidecar-ui`, `host-enhancement` (`app-asar`) | In-app Gemini Neko companion widget and live context window, prompt-cache hit rate, and model quota observer cockpit for Antigravity 2.0. |
+| `zou172866__agy-dart` | `agy-dart` | `1.7.8` | [`zou172866/Antigravity-agy-dart`](https://github.com/zou172866/Antigravity-agy-dart) | `global-rules`, `sidecar-ui`, `mcp-stdio`, `lifecycle-hooks` | All-in-one Antigravity latency accelerator, KV-cache protector, SQLite FTS5 context-window guard, and live Sidecar dashboard. |
+<!-- CATALOG-TABLE:END -->
 
 ---
 
-## 🚀 Submitting a Plugin (Track-1 Single-YAML Pipeline)
+## 📝 Submitting a Plugin (Track-1 Single-YAML Pipeline)
 
-> For full copy-paste templates, packaging recipes, and troubleshooting, see **[📖 `docs/SUBMISSION_GUIDE.md`](./docs/SUBMISSION_GUIDE.md)**.
+> For full copy-paste templates, packaging recipes, and error code troubleshooting, see **[📖 `docs/SUBMISSION_GUIDE.en.md`](./docs/SUBMISSION_GUIDE.en.md)**.
 
-Track 1 uses **one flat YAML file per plugin** for conflict-free concurrent Pull Requests and supports language-agnostic plugins (pure Markdown `skills/`/`rules/`/`agents/`, Sidebar panels, and Python/Rust/Go/Node MCP bundles) — **no `package.json` or npm publication required**.
+Track 1 uses **one flat YAML file per plugin** for conflict-free concurrent Pull Requests and supports language-agnostic plugins (pure Markdown `skills/`/`rules/`/`agents/`, Sidecar panels, and Python/Rust/Go/Node MCP bundles) — **no `package.json` or npm publication required**.
 
 ### 1. Prepare Your Repository & Release
 1. **Anti-Spam Cold-Start Threshold**: Repository must be **>= 1 day old (`MIN_AGE_DAYS = 1`)** with **>= 3 commits having distinct Git tree hashes (`MIN_NON_EMPTY_COMMITS = 3`)**.
-2. **Strict 10-Field `plugin.json`**: Placed at `pluginRoot` using only Antigravity's native keys (`name`, `displayName`, `description`, `version`, `logo`, `author`, `homepage`, `repository`, `suggestedPrompts`, `disabled`). Any `logo` must be a relative path inside `pluginRoot` (never `https://`).
-3. **Prebuilt GitHub Release Archive**: Publish a SemVer GitHub Release attaching a prebuilt `.tar.gz` or `.tgz` bundle (self-contained zero-build bundles may also use SemVer Git tag archives).
-4. **Optional `agy-market.json`**: Declare extra `categories`, `tags`, `screenshots`, `platforms`, custom `releaseAsset`, or `preservePaths`.
+2. **Native Manifest (2 Supported Paths)**: Place `plugin.json` or `.antigravity-plugin/plugin.json` at `pluginRoot` using only Antigravity's strict 10-field allowlist (`name`, `displayName`, `description`, `version`, `logo`, `author`, `homepage`, `repository`, `suggestedPrompts`, `disabled`). Any `logo` must be a relative path inside `pluginRoot` (`.svg` / `.png` / `.jpg` / `.jpeg` / `.webp`, max **`2 MB`**, never `https://`).
+3. **Release Archive & Zero Artificial Size Cap**: Publish a SemVer GitHub Release attaching a prebuilt `.tar.gz` or `.tgz` bundle (self-contained zero-build bundles may also use SemVer Git tag archives). **The 100 MB archive size gate has been removed** (`MAX_TARBALL_BYTES = 0`): CI streams archives via `inspectTarGzStream` in O(MB) RAM with a `60s` stall timeout (`TARBALL_FETCH_TIMEOUT_MS = 60_000`), supporting large self-contained bundles with local models or binaries.
+4. **Optional `agy-market.json`**: Declare extra `categories`, `tags`, `screenshots`, `platforms`, custom `releaseAsset`, or `preservePaths`. For `app-asar` host-enhancement plugins, document re-running your patch script after install/update in `README.md` and list user config/custom asset globs in `preservePaths` so client updates merge and preserve them.
 
 ### 2. Add One YAML File Under `data/plugins/`
-Create `data/plugins/<owner>__<repo>.yml` (or `data/plugins/<owner>__<repo>--<subpath>.yml` for monorepos; `__` cleanly separates GitHub `owner` and `repo`):
+Create `data/plugins/<owner>__<repo>.yml` (or `data/plugins/<owner>__<repo>--<subpath>.yml` for monorepos; `__` unambiguously separates GitHub `owner` and `repo`):
 
 ```yaml
 url: https://github.com/author/my-agy-plugin
 pluginRoot: .
 category: productivity
 description:
-  zh: 插件中文功能简介（1-2 句）
-  en: Concise English summary of what the plugin provides.
+  zh: 插件中文功能简介（2-240 字，直接展示在市场中文卡片中）。
+  en: Concise English summary of what the plugin provides (2-300 chars).
 ```
 
 > **Submission Guardrails**:
-> - Max **`3`** added/modified entries per PR (`MAX_ENTRIES_PER_PR = 3`). Machine-computed fields (`sha256`, `npm`, `npmMirrorPkg`, `repositoryId`, `ownerId`) are forbidden in YAML.
-> - Allowed `category` values (15): `monitoring-quota`, `context-cache`, `ui-themes`, `agents-reasoning`, `developer-tools`, `mcp-integrations`, `skills-workflows`, `productivity`, `data-science`, `cloud-devops`, `creative-media`, `writing-knowledge`, `automation`, `security`, `other`.
+> - Max **`3`** added/modified entries per PR (`MAX_ENTRIES_PER_PR = 3`) and max **`2`** deleted entries (`MAX_DELETED_ENTRIES_PER_PR = 2`), touching only `data/plugins/*.yml`.
+> - Machine-computed fields (`sha256`, `npm`, `npmMirrorPkg`, `repositoryId`, `ownerId`) are forbidden in YAML.
 > - Optional `releaseAsset: my-plugin.tar.gz` overrides release asset selection.
 
 #### Allowed Categories (15 Enum Values)
@@ -83,17 +113,22 @@ description:
 | `security` | Security | 安全与审计 |
 | `other` | Other | 其他扩展 |
 
-### 3. Two-Tier Fork-Safe Auto-Admission & Zero-PR Sync
-1. **Tier 1 (`pr-check.yml`, Zero Secrets)**: Immediately validates PR file paths, YAML schemas, and unit tests.
-2. **Tier 2 (`pr-gate.yml`, `workflow_run` on trusted `main`)**: Checks out only trusted `main` and extracts `data/plugins/*.yml` via `git archive` — never executing PR code. Streams and validates the release tarball, checks the anti-collision ledger and 4-layer scanner, locks state (`state/ledger.json` + `state/versions-lock.json`), and squash-merges automatically.
+### 3. Fork-Safe Admission, One-Click Maintainer Merge (`merge-pr.yml`) & Zero-PR Sync
+1. **Tier 1 (`pr-check.yml`, Zero Secrets)**: Immediately validates merge-base diff limits, YAML schemas, and unit tests.
+   - **First-Time Fork Contributor `action_required` Gate**: Under GitHub Actions' default security policy, `pull_request` workflows opened by first-time fork contributors stall in `action_required` awaiting UI approval, preventing `pr-gate.yml` (`workflow_run`) from firing automatically. To unblock maintainers cleanly, this repository ships **`.github/workflows/merge-pr.yml`**.
+2. **Tier 2 (`pr-gate.yml`) & One-Click Maintainer Merge (`merge-pr.yml`)**:
+   - **Two One-Click Entrypoints**:
+     - **PR Comment Command**: Any repo `OWNER`, `MEMBER`, or `COLLABORATOR` may comment `/merge` (or `/admit`) on an open PR — with optional `--dry-run` (validate & post bilingual diagnostics without merging) or `--skip-age-check` (override the 24h `MIN_AGE_DAYS = 1` gate). Reacts with 🚀 to acknowledge.
+     - **GitHub Actions `workflow_dispatch`**: Run `Maintainer One-Click Plugin PR Merge (Fork-Safe)` with `pr_number` (a single PR such as `2`, a comma-separated list such as `2,3,4`, or `all` for every open plugin PR), `dry_run`, and `skip_age_check`.
+   - **100% Fork-Safe Atomic Pipeline**: Always checks out trusted `main` only (never `pull_request_target` or untrusted PR code), validates `git merge-base` diffs, extracts only `data/plugins/*.yml` via `git archive`, runs `validate-entries.mjs` + `node --test` + `check-submission.mjs`, squash-merges with `--match-head-commit`, atomically locks `state/ledger.json` + `state/versions-lock.json` on freshly rebased `origin/main` (guarded by `concurrency: catalog-state-publish` + 3-attempt retry), regenerates `README.md` / `README.en.md` tables, posts bilingual PR summaries, and deploys `gh-pages` immediately in-job.
    - Brand-new repos (`< 24h` old) that pass all static/tarball checks receive the `pending: repo-age` label with their exact UTC unlock timestamp and are auto-merged by **`regate.yml` (every 6h)**.
-3. **Zero-PR Release Sync**: Once admitted, **`sync-catalog.yml` (every 30m)** automatically polls new SemVer releases, computes digests and capabilities, and republishes GitHub Pages + `@agy-market/catalog`.
+3. **Zero-PR Release Sync**: Once admitted, **`sync-catalog.yml` (every 30m)** polls new SemVer releases, runs always-on `PRIVILEGE_REVIEW` capability checks, updates `dist/`, syncs README tables, and deploys `gh-pages` (plus opt-in `@agy-market/catalog` npm publishing when `NPM_PUBLISH_ENABLED=true`).
 
 ---
 
-## 🌐 Multilingual `README.zh-CN.md` Extraction
+## 🌐 Multilingual README Extraction & Lazy Feeds
 
-To render Simplified Chinese documentation out of the box inside AGY Market's Detail Drawer, `scripts/validate-plugin-tarball.mjs` and `scripts/build-catalog.mjs` automatically extract localized READMEs alongside the default `README.md`:
+To render Simplified Chinese and English documentation out of the box inside AGY Market's Detail Drawer, `scripts/validate-plugin-tarball.mjs` and `scripts/build-catalog.mjs` extract localized READMEs alongside the default `README.md` (`64,000`-char ceiling per file):
 
 - **Simplified Chinese (`readmeZhMarkdown`)**: Checks `pluginRoot` (then archive root) in priority order:
   1. `README.zh-CN.md` / `README_zh-CN.md` (case-insensitive)
@@ -103,37 +138,36 @@ To render Simplified Chinese documentation out of the box inside AGY Market's De
 - **English (`readmeEnMarkdown`)**: Checks `README.en.md`, `README.en-US.md`, `README_en.md`, `docs/README.en.md`, or falls back to an English `README.md`.
 - **Backward Compatibility (`readmeMarkdown`)**: Preserves default `README.md`.
 
-`dist/readmes.json` maintains 100% v1 client compatibility via `entries` while adding `entriesZh` and `entriesEn`:
+`build-catalog.mjs` emits three complementary README artifacts:
+1. **`dist/readmes/<id>.json` (Per-Plugin Lazy Feed)**: Compact `{ "id": "...", "default": "...", "zh": "...", "en": "..." }` fetched on demand by newer AGY Market clients.
+2. **`dist/readmes-verified.json`**: Compact Track-1 verified README bundle.
+3. **`dist/readmes.json`**: Backward-compatible full bundle (`entries`, `entriesZh`, `entriesEn`).
 
-```json
-{
-  "schemaVersion": 1,
-  "generatedAt": "2026-11-24T00:00:00.000Z",
-  "entries": { "owner__repo": "# Default README.md ..." },
-  "entriesZh": { "owner__repo": "# 简体中文 README ..." },
-  "entriesEn": { "owner__repo": "# English README ..." }
-}
-```
+> **Tip for Plugin Authors**: If your default `README.md` is in English, ship **`README.zh-CN.md`** alongside it; if your default `README.md` is in Simplified Chinese, include **`README.en.md`** so the catalog indexes both languages automatically!
 
 ---
 
-## 🔍 Track 2 — `topic:antigravity-plugin` Auto-Discovery
+## 🔍 Track 2 Multi-Source Discovery & Tier-0 Community Nomination
 
-Public repositories tagged with GitHub topic **`antigravity-plugin`** and shipping a valid SemVer release + `plugin.json` are discovered automatically with zero PRs:
-- **`crawl-topics.yml` (every 6 hours)** shards `topic:antigravity-plugin archived:false` by `pushed:` date windows.
-- Automatically excludes any `repositoryId` already registered in Track 1.
-- Runs the identical tarball inspector, localized README extractor, and 4-layer capability scanner, enforces **`"forceScopedInstall": true`** (`<owner>--<slug>`), and publishes `dist/unverified-index.json`.
+### Tier-0 Community Nomination (`ingest-nomination.yml`)
+Anyone can nominate a public GitHub repository for Track 2 via the **[Community Nomination Issue Form](./.github/ISSUE_TEMPLATE/nominate-plugin.yml)** (or by labeling a public issue `community-discovery`, triggered on both `opened` and `labeled`; rate-limited to 5 nominations per 24h per author, zero PII). `scripts/parse-nomination.mjs` parses `owner/repo` + optional `plugin_root` and triggers immediate static validation and `gh-pages` publication into Track 2.
+
+### Track-2 Multi-Source Crawler (`crawl-topics.yml`, `848+` Plugins Indexed)
+- **Multi-Source Discovery**: Combines **Channel A** (11 adaptive Repo Search arms + 14 `VALIDATED_CODE_SEARCH_QUERIES` code fingerprints managed by `AdaptiveRangeSlicer`, `DiscountedUcb1Cost`, and `CodeSearchPacer`), **Channel B** (5 configured aggregators/monorepos in `data/aggregators.json` + auto-promoted `state/discovered-aggregators.json`), **P1 Snowballs** (1-hop README frontier, Author GraphQL snowball, npm search bridge, topic co-occurrence miner), and **Two-Stage GraphQL** (`2A-Heartbeat`, `2A-Novel`, `2B-Inspect`).
+- **3-Tier Resolution & 4 Plugin Layouts**: Resolves official Release → SemVer Tag → default-branch commit SHA (`<base>-git.<ts>.<sha7>`); scans root `plugin.json`, `.antigravity-plugin/plugin.json`, `.agents/plugins/*` (`.agent/plugins/*`), and `plugins/*` / nested subdirs (depth `1..4`).
+- **Authenticity, Dedup & Scoped Symlinks**: Filters non-Antigravity repositories (`authenticity-scorer.mjs`), deduplicates forks/mirrors (`dedup-engine.mjs`), computes `ranking.score` (`quality-ranker.mjs`), excludes Track-1 `repositoryId`s, enforces **`"forceScopedInstall": true`** (`<owner>--<slug>`), and skips symlinks strictly *outside* `pluginRoot` in Track 2 (`minClientVersion: "1.6.0"`) while still hard-blocking symlinks inside or traversing `pluginRoot`.
 
 ---
 
-## 🛡️ Two-Layer Namespace Anti-Collision & Anti-RepoJacking
+## 🛡️ Two-Layer Anti-Collision, Anti-RepoJacking & Privilege Guard
 
 Because Antigravity enforces a global flat namespace on `plugin.json.name` (silently dropping duplicate names), the catalog combines two layers of protection:
 
 1. **Layer 1 — Central Ledger Reservation (`state/ledger.json`)**:
    - First-come-first-served preservation of clean authored short names (`<dir> === plugin.json.name`, single-hyphen kebab-case `^[a-z0-9]+(-[a-z0-9]+)*$`, `--` disallowed).
-   - **Immutable Numeric ID Binding**: Locks GitHub's numeric `repositoryId` & `ownerId` to defeat RepoJacking (`REPOJACKING_BLOCKED` on slug recreation), support seamless renames under the same owner, and pause ownership transfers with capability expansion (`OWNERSHIP_TRANSFER_REVIEW`).
-   - Enforces reserved system/official denylists, Levenshtein `== 1` typosquatting warnings, and sub-component checks (`claimedSkills`, `claimedAgents`, and non-generic `mcp_config.json` server keys).
+   - **Immutable Numeric ID Binding**: Locks GitHub's numeric `repositoryId` & `ownerId` to defeat RepoJacking (`REPOJACKING_BLOCKED` on slug recreation), handle same-owner renames seamlessly (e.g., `zou172866/agy-dart` → `zou172866/Antigravity-agy-dart`), and hold ownership transfers with capability expansion (`OWNERSHIP_TRANSFER_REVIEW`).
+   - **Always-On Privilege Escalation Guard (`PRIVILEGE_REVIEW`)**: On every release sync (`scripts/sync-releases.mjs`), `computeCapabilityDiff` compares the new version's capabilities against the prior locked release *even without an ownership transfer*. Any `CRITICAL` expansion (new `mcpRemoteDomains`, patch bump adding `lifecycle-hooks`/`mcp-stdio`/`app-asar`, `>2x` and `+1500` `rulesEstimatedTokens` spike, or high-risk shell pipe patterns) holds the update in `PRIVILEGE_REVIEW`; `MODERATE` expansions attach `lastEscalation` metadata for client confirmation modals.
+   - **Reserved Lists & Sub-Component Guards**: Blocks `BUILTIN_PLUGINS` (`swarm`, `agy-market`, `agy-market-catalog`), built-in subagents/skills, official marketplace slugs, and direct forks of `FIRST_PARTY_REPO_OWNERS` (`google`, `google-deepmind`, `antigravity-plugins-official`, `google-labs-code`, `googlecloudplatform`); emits `WARN_TYPOSQUAT_SUSPECT` on Levenshtein `== 1`, and enforces unique `claimedSkills`, `claimedAgents`, and non-generic `mcp_config.json` server keys.
 2. **Layer 2 — Double-Hyphen Scoped Fallback (`<owner>--<slug>`)**:
    - GitHub usernames allow single hyphens but forbid consecutive `--`, making `<owner-lower>--<slug>` collision-free across all Track-2 installs and local client conflicts.
 
@@ -143,18 +177,19 @@ Because Antigravity enforces a global flat namespace on `plugin.json.name` (sile
 
 All checks run strictly via zero-execution in-memory streaming:
 
-- **Hard-Block Redlines (Genuine Supply-Chain & Exfiltration Threats Only)**:
-  1. Tarball path traversal (`..`), absolute paths, or symlink/hardlink entries (`typeflag` `'1'` / `'2'`) (no artificial archive size limit; large self-contained bundles are stream-validated).
-  2. Immutable tag/digest mutation (`TAG_MUTATION_BLOCKED`) against `state/versions-lock.json`.
-  3. `rules/*.md` `@[label](path)` out-of-root file exfiltration (`..`, `~/`, env vars, absolute paths) and Antigravity's `24,000`-byte per-rule ceiling.
-  4. Invisible Unicode Tag (`U+E0000..U+E007F`) and bidi override prompt-injection smuggling in `rules/*.md`, `skills/**/SKILL.md`, and `agents/*.md`.
-  5. Active SVG XSS (`<script>`, `foreignObject`, `javascript:`, `on*=`) stripped by `scripts/sanitize-icon.mjs` + magic-byte checks for PNG/JPEG/WebP icons.
-- **Permissive Capability Profiling (CDP & `app.asar` Welcomed)**:
-  - Legitimate Antigravity host enhancements — including **CDP bridges** and **`resources/app.asar` patches** — are **explicitly welcomed in Track 1** and labeled transparently with a gentle `host-enhancement` (`💡 Host UI Enhancement`) badge alongside `declarative-only`, `global-rules`, `sidecar-ui`, `mcp-stdio`, `mcp-remote`, and `lifecycle-hooks`.
+### Hard-Block Redlines (Genuine Supply-Chain & Exfiltration Threats Only)
+1. **Tarball Traversal, Symlink Poisoning & Uncapped Streaming**: Rejects `..` path traversal, absolute paths, or symlink/hardlink entries (`typeflag` `'1'` / `'2'`). No artificial 100 MB archive size cap (`MAX_TARBALL_BYTES = 0`); `inspectTarGzStream` omits `> 4 MB` non-text binary assets from RAM with a `60s` stall timeout (`TARBALL_FETCH_TIMEOUT_MS = 60_000`).
+2. **Tag / Digest Mutation (`TAG_MUTATION_BLOCKED`)**: Blocks mutating `commitSha` or `sha256` on an already-locked version in `state/versions-lock.json`.
+3. **`rules/*.md` Local-File Exfiltration & Size Cap**: Blocks `@[label](path)` referencing `..`, `~/`, env vars, or absolute paths outside `<pluginRoot>`, and enforces Antigravity's `24,000`-byte per-rule ceiling (`MAX_RULE_FILE_BYTES = 24_000`).
+4. **Invisible Prompt-Injection Smuggling**: Rejects Unicode Tag (`U+E0000..U+E007F`) and bidi override characters in `rules/*.md`, `skills/**/SKILL.md`, and `agents/*.md`.
+5. **Icon Size Cap, Magic Bytes & Active SVG XSS/XXE**: `scripts/sanitize-icon.mjs` enforces the `2 MB` cap (`ERR_ICON_TOO_LARGE`), validates PNG/JPEG/WebP magic bytes (`ERR_ICON_MAGIC_MISMATCH`), rejects SVG `<!ENTITY>` XXE, and strips `<script>`, `foreignObject`, `javascript:`, and `on*=`.
+
+### Permissive Capability Profiling (CDP & `app.asar` Welcomed)
+Legitimate Antigravity host enhancements — including **CDP bridges** (e.g., glass/wallpaper skins) and **`resources/app.asar` patches** (e.g., in-app companion desktop widgets) — are **explicitly welcomed in Track 1** and never blocked or penalized. They receive a gentle `host-enhancement` (`💡 Host UI Enhancement`) badge alongside `declarative-only`, `global-rules`, `sidecar-ui`, `mcp-stdio`, `mcp-remote`, and `lifecycle-hooks`. For `app-asar` plugins, document re-running your patch script after install/update and declare user config paths in `agy-market.json`'s `preservePaths`.
 
 ---
 
-## 💻 Commands
+## 💻 Local Commands
 
 > Requires **Node.js >= 22.0.0** (zero runtime dependencies).
 
@@ -162,10 +197,14 @@ All checks run strictly via zero-execution in-memory streaming:
 # Validate data/plugins/*.yml schemas & allowlists
 npm run validate
 
-# Build dist/{index,unverified-index,readmes}.json & dist/icons/*
+# Check or sync Track-1 catalog tables in README.md & README.en.md
+node scripts/sync-readme-tables.mjs --check
+npm run sync:readme
+
+# Build dist/{index,unverified-index,readmes,readmes-verified}.json, dist/readmes/*.json & dist/icons/*
 npm run build
 
-# Run anti-collision, RepoJacking, tar/PAX safety, multilingual README & 4-layer capability scanner tests
+# Run anti-collision, RepoJacking, tar/PAX safety, workflow audit, multilingual README & scanner tests
 npm test
 
 # Manually evaluate a submission entry
@@ -179,7 +218,7 @@ node scripts/sync-releases.mjs --offline
 
 ## 📚 Guides & Architecture
 
-- **[📖 Plugin Submission Guide (`docs/SUBMISSION_GUIDE.md`)](./docs/SUBMISSION_GUIDE.md)** — Full step-by-step author tutorial, templates & FAQ (Simplified Chinese)
+- **[📖 Plugin Submission Guide (`docs/SUBMISSION_GUIDE.en.md`)](./docs/SUBMISSION_GUIDE.en.md)** · **[简体中文教程 (`docs/SUBMISSION_GUIDE.md`)](./docs/SUBMISSION_GUIDE.md)** — Full step-by-step author & maintainer tutorial, templates, and error code FAQ
 - Read **[`AGENTS.md`](./AGENTS.md)** and **[`../AGENTS.md`](../AGENTS.md)** before modifying scripts, schemas, or GitHub Actions workflows.
 
 ## 📄 License

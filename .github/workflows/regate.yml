@@ -10,9 +10,14 @@ permissions:
   pull-requests: write
   issues: write
 
+concurrency:
+  group: catalog-state-publish
+  cancel-in-progress: false
+
 jobs:
   regate-pending:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,54 +28,168 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Re-evaluate PRs labeled `pending: repo-age`, commit state, and auto-merge
+      - name: "Re-evaluate PRs labeled 'pending: repo-age', commit state, and auto-merge"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          prs=$(gh pr list --repo "$REPO" --state open --label "pending: repo-age" --json number,headRefOid --jq '.[] | "\(.number) \(.headRefOid)"')
-          [ -z "$prs" ] && exit 0
+          mapfile -t PR_NUMS < <(gh pr list --repo "$REPO" --state open --label "pending: repo-age" --limit 100 --json number --jq 'sort_by(.number) | .[].number')
+          [ "${#PR_NUMS[@]}" -eq 0 ] && exit 0
 
-          echo "$prs" | while read -r pr_num head_sha; do
+          MERGED_COUNT=0
+          for pr_num in "${PR_NUMS[@]}"; do
             [ -z "$pr_num" ] && continue
-            git pull --rebase origin main
-            git fetch origin "$head_sha" --depth=1 || continue
-            changed=$(git diff --name-only --diff-filter=AM origin/main "$head_sha" -- 'data/plugins/*.yml' || true)
-            [ -z "$changed" ] && continue
 
-            rm -rf ".tmp/regate-$pr_num" ".tmp/regate-state-$pr_num"
-            mkdir -p ".tmp/regate-$pr_num" ".tmp/regate-state-$pr_num"
-            git archive "$head_sha" -- $changed | tar -x -C ".tmp/regate-$pr_num" || continue
+            rm -rf .tmp/regate-run
+            mkdir -p .tmp/regate-run/extract
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fd data/plugins
 
-            all_approved=1
-            for rel in $changed; do
-              cp ".tmp/regate-$pr_num/$rel" "$rel"
-              if ! node scripts/check-submission.mjs --write-state "$rel"; then
-                all_approved=0
+            PR_META=$(gh pr view "$pr_num" --repo "$REPO" --json state,baseRefName,headRefOid 2>/dev/null || echo "")
+            [ -z "$PR_META" ] && continue
+            PR_STATE=$(printf '%s' "$PR_META" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).state||''))")
+            PR_BASE=$(printf '%s' "$PR_META" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).baseRefName||''))")
+            [ "$PR_STATE" = "OPEN" ] && [ "$PR_BASE" = "main" ] || continue
+
+            git fetch origin "refs/pull/${pr_num}/head:refs/remotes/origin/pr-${pr_num}" --force || continue
+            head_sha=$(git rev-parse "refs/remotes/origin/pr-${pr_num}")
+            merge_base=$(git merge-base origin/main "refs/remotes/origin/pr-${pr_num}")
+            git diff --name-status "$merge_base" "refs/remotes/origin/pr-${pr_num}" > .tmp/regate-run/diff.txt
+
+            if ! node scripts/admit-pr-helper.mjs parse-diff --input .tmp/regate-run/diff.txt > .tmp/regate-run/diff.json 2>.tmp/regate-run/diff.err; then
+              continue
+            fi
+
+            mapfile -t changed < <(node --input-type=module -e "
+              import { readFileSync } from 'node:fs';
+              const d = JSON.parse(readFileSync('.tmp/regate-run/diff.json', 'utf8'));
+              for (const p of d.changedYmls) console.log(p);
+            ")
+            [ "${#changed[@]}" -eq 0 ] && continue
+
+            git archive "$head_sha" -- "${changed[@]}" | tar -x -C .tmp/regate-run/extract || continue
+            symlink_err=""
+            for rel in "${changed[@]}"; do
+              if [ -L ".tmp/regate-run/extract/$rel" ] || [ ! -f ".tmp/regate-run/extract/$rel" ]; then
+                symlink_err="ERR_PR_SYMLINK_FORBIDDEN: PR entry ${rel} must be a regular file (symlinks/non-regular entries are blocked)"
                 break
               fi
             done
-
-            if [ "$all_approved" -eq 1 ]; then
-              cp -r state/* ".tmp/regate-state-$pr_num/"
-              git checkout -- .
-              git clean -fd data/plugins/
-
-              gh pr edit "$pr_num" --repo "$REPO" --remove-label "pending: repo-age" || true
-              gh pr merge "$pr_num" --repo "$REPO" --squash
-              git pull --rebase origin main
-              cp -r ".tmp/regate-state-$pr_num/"* state/
-              git add state/
-              if ! git diff --cached --quiet; then
-                git commit -m "chore(regate): admit matured plugin from PR #${pr_num}"
-                git push origin HEAD:main
-              fi
-            else
-              git checkout -- .
-              git clean -fd data/plugins/
+            if [ -n "$symlink_err" ]; then
+              echo "::error::${symlink_err}"
+              ERR_MSG="$symlink_err" node --input-type=module -e "
+                import { writeFileSync } from 'node:fs';
+                const msg = process.env.ERR_MSG || 'ERR_PR_SYMLINK_FORBIDDEN';
+                writeFileSync('.tmp/regate-run/summary.json', JSON.stringify({
+                  overallStatus: 'FAILED',
+                  counts: { total: 1, approved: 0, pendingRepoAge: 0, failed: 1 },
+                  results: [{
+                    file: 'PR extract',
+                    status: 'FAILED',
+                    canonicalName: null,
+                    version: null,
+                    sha256: null,
+                    badges: [],
+                    hostEnhancementKind: [],
+                    unlockAtUtc: null,
+                    warnings: [],
+                    error: msg,
+                  }],
+                }, null, 2));
+              "
+              node scripts/admit-pr-helper.mjs format-comment --mode rejected --pr "$pr_num" --summary .tmp/regate-run/summary.json --head-sha "$head_sha" --run-url "$RUN_URL" \
+                | gh pr comment "$pr_num" --repo "$REPO" --body-file - || true
+              continue
             fi
+            for rel in "${changed[@]}"; do
+              mkdir -p "$(dirname "$rel")"
+              cp -P ".tmp/regate-run/extract/$rel" "$rel"
+            done
+
+            if ! (node scripts/validate-entries.mjs && node --test test/*.test.mjs); then
+              git checkout -- .
+              git clean -fd data/plugins
+              continue
+            fi
+
+            set +e
+            node scripts/check-submission.mjs --json-summary .tmp/regate-run/summary.json "${changed[@]}"
+            check_code=$?
+            set -e
+
+            if [ "$check_code" -ne 0 ]; then
+              git checkout -- .
+              git clean -fd data/plugins
+              if [ "$check_code" -ne 78 ]; then
+                node scripts/admit-pr-helper.mjs format-comment --mode rejected --pr "$pr_num" --summary .tmp/regate-run/summary.json --head-sha "$head_sha" --run-url "$RUN_URL" \
+                  | gh pr comment "$pr_num" --repo "$REPO" --body-file - || true
+              fi
+              continue
+            fi
+
+            git checkout -- .
+            git clean -fd data/plugins
+
+            if ! gh pr merge "$pr_num" --repo "$REPO" --squash --match-head-commit "$head_sha"; then
+              continue
+            fi
+
+            pushed=0
+            for attempt in 1 2 3; do
+              git fetch origin main
+              git reset --hard origin/main
+              node scripts/check-submission.mjs --write-state --json-summary .tmp/regate-run/locked-summary.json "${changed[@]}"
+              node scripts/sync-readme-tables.mjs --write
+              git add state/
+              [ -f README.md ] && git add README.md || true
+              [ -f README.en.md ] && git add README.en.md || true
+              if git diff --cached --quiet; then
+                pushed=1
+                break
+              fi
+              git commit -m "chore(regate): admit matured plugin from PR #${pr_num}"
+              if git push origin HEAD:main; then
+                pushed=1
+                break
+              fi
+              sleep $((attempt * 3))
+            done
+
+            if [ "$pushed" -ne 1 ]; then
+              echo "::error::Failed to push regate state for PR #${pr_num} after 3 attempts"
+              exit 1
+            fi
+
+            MERGED_COUNT=$((MERGED_COUNT + 1))
+            gh pr edit "$pr_num" --repo "$REPO" --remove-label "pending: repo-age" 2>/dev/null || true
+            node scripts/admit-pr-helper.mjs format-comment --mode approved --pr "$pr_num" --summary .tmp/regate-run/locked-summary.json --head-sha "$head_sha" --run-url "$RUN_URL" \
+              | gh pr comment "$pr_num" --repo "$REPO" --body-file - || true
           done
+
+          if [ "$MERGED_COUNT" -gt 0 ]; then
+            git fetch origin main
+            git reset --hard origin/main
+            rm -rf .tmp/gh-pages-seed .tmp/gh-pages
+            mkdir -p .tmp/gh-pages-seed/readmes .tmp/gh-pages
+            if git fetch --depth=1 origin gh-pages 2>/dev/null; then
+              git archive origin/gh-pages -- readmes 2>/dev/null | tar -x -C .tmp/gh-pages-seed || true
+            fi
+            node scripts/build-catalog.mjs --seed-readmes-dir=.tmp/gh-pages-seed/readmes --gc-icons
+            cp -r dist/* .tmp/gh-pages/
+            touch .tmp/gh-pages/.nojekyll
+            (
+              cd .tmp/gh-pages
+              git init -b gh-pages
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add -A
+              git commit -m "chore(catalog): publish catalog after regate admission"
+              git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages:gh-pages
+            )
+          fi

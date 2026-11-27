@@ -23,7 +23,8 @@ import { validateSingleEntryFile } from './validate-entries.mjs';
 import { validatePluginTarball } from './validate-plugin-tarball.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(__dirname, '..');
+const REPO_ROOT = process.env.AGY_CATALOG_REPO_ROOT ? resolve(process.env.AGY_CATALOG_REPO_ROOT) : resolve(__dirname, '..');
+const GITHUB_API_BASE = (process.env.AGY_GITHUB_API_BASE || 'https://api.github.com').replace(/\/+$/, '');
 
 export function countDistinctCommitTrees(commits = []) {
   const trees = new Set();
@@ -50,6 +51,7 @@ export function evaluateSubmission({
   ledger,
   versionsLock,
   nowMs = Date.now(),
+  allowPendingAge = false,
 }) {
   if (!repoMeta || typeof repoMeta.id !== 'number' || !repoMeta.owner || typeof repoMeta.owner.id !== 'number') {
     throw new Error('ERR_REPO_NOT_FOUND: GitHub repository metadata missing numeric id / owner.id');
@@ -195,14 +197,17 @@ export function evaluateSubmission({
   const ageMs = nowMs - createdMs;
   if (ageMs < MIN_AGE_MS && !isOfficialSelfClient) {
     const unlockAtUtc = new Date(createdMs + MIN_AGE_MS).toISOString();
-    return {
-      status: 'PENDING_REPO_AGE',
-      unlockAtUtc,
-      remainingMs: MIN_AGE_MS - ageMs,
-      canonicalName,
-      warnings,
-      inspected,
-    };
+    if (!allowPendingAge) {
+      return {
+        status: 'PENDING_REPO_AGE',
+        unlockAtUtc,
+        remainingMs: MIN_AGE_MS - ageMs,
+        canonicalName,
+        warnings,
+        inspected,
+      };
+    }
+    warnings.push(`WARN_AGE_OVERRIDE_USED: Repository age gate overridden before ${unlockAtUtc}`);
   }
 
   const nowIso = new Date(nowMs).toISOString();
@@ -269,7 +274,7 @@ async function githubFetchJson(url, token = '') {
 
 async function resolveLiveReleaseCandidate(repoFullName, releaseAsset, token = '') {
   try {
-    const release = await githubFetchJson(`https://api.github.com/repos/${repoFullName}/releases/latest`, token);
+    const release = await githubFetchJson(`${GITHUB_API_BASE}/repos/${repoFullName}/releases/latest`, token);
     const assets = Array.isArray(release.assets) ? release.assets : [];
     const chosenAsset = releaseAsset
       ? assets.find((a) => a.name === releaseAsset)
@@ -280,7 +285,7 @@ async function resolveLiveReleaseCandidate(repoFullName, releaseAsset, token = '
       );
     }
     const tagRef = await githubFetchJson(
-      `https://api.github.com/repos/${repoFullName}/commits/${encodeURIComponent(release.tag_name)}`,
+      `${GITHUB_API_BASE}/repos/${repoFullName}/commits/${encodeURIComponent(release.tag_name)}`,
       token,
     );
     return {
@@ -298,7 +303,7 @@ async function resolveLiveReleaseCandidate(repoFullName, releaseAsset, token = '
     }
   }
 
-  const tags = await githubFetchJson(`https://api.github.com/repos/${repoFullName}/tags?per_page=30`, token);
+  const tags = await githubFetchJson(`${GITHUB_API_BASE}/repos/${repoFullName}/tags?per_page=30`, token);
   const semverTags = (Array.isArray(tags) ? tags : [])
     .filter((t) => {
       const sem = parseSemver(t?.name);
@@ -312,7 +317,7 @@ async function resolveLiveReleaseCandidate(repoFullName, releaseAsset, token = '
 
   const bestTag = semverTags[0];
   const commitInfo = await githubFetchJson(
-    `https://api.github.com/repos/${repoFullName}/commits/${encodeURIComponent(bestTag.name)}`,
+    `${GITHUB_API_BASE}/repos/${repoFullName}/commits/${encodeURIComponent(bestTag.name)}`,
     token,
   );
   return {
@@ -324,13 +329,13 @@ async function resolveLiveReleaseCandidate(repoFullName, releaseAsset, token = '
   };
 }
 
-export async function runLiveSubmissionCheck(entryFilePath, { writeState = false } = {}) {
+export async function runLiveSubmissionCheck(entryFilePath, { writeState = false, allowPendingAge = false } = {}) {
   const token = process.env.GITHUB_TOKEN || '';
   const rawYaml = readFileSync(entryFilePath, 'utf8');
   const entry = validateSingleEntryFile(entryFilePath, rawYaml);
 
-  const repoMeta = await githubFetchJson(`https://api.github.com/repos/${entry.repoFullName}`, token);
-  const commits = await githubFetchJson(`https://api.github.com/repos/${entry.repoFullName}/commits?per_page=15`, token);
+  const repoMeta = await githubFetchJson(`${GITHUB_API_BASE}/repos/${entry.repoFullName}`, token);
+  const commits = await githubFetchJson(`${GITHUB_API_BASE}/repos/${entry.repoFullName}/commits?per_page=15`, token);
   const resolvedRel = await resolveLiveReleaseCandidate(entry.repoFullName, entry.releaseAsset, token);
 
   const tarRes = await fetchWithLimit(resolvedRel.tarballUrl, {
@@ -361,9 +366,11 @@ export async function runLiveSubmissionCheck(entryFilePath, { writeState = false
     tarInfo,
     ledger,
     versionsLock,
+    allowPendingAge,
   });
 
   if (writeState && outcome.status === 'APPROVED') {
+    mkdirSync(dirname(ledgerPath), { recursive: true });
     writeFileSync(ledgerPath, `${JSON.stringify(outcome.ledger, null, 2)}\n`, 'utf8');
     writeFileSync(lockPath, `${JSON.stringify(outcome.versionsLock, null, 2)}\n`, 'utf8');
     if (outcome.inspected?.iconArtifact) {
@@ -380,19 +387,116 @@ export async function runLiveSubmissionCheck(entryFilePath, { writeState = false
   return outcome;
 }
 
+export function buildSubmissionSummaryPayload(results = []) {
+  const counts = {
+    total: results.length,
+    approved: results.filter((r) => r.status === 'APPROVED').length,
+    pendingRepoAge: results.filter((r) => r.status === 'PENDING_REPO_AGE').length,
+    failed: results.filter((r) => r.status === 'FAILED').length,
+  };
+  let overallStatus = 'APPROVED';
+  if (counts.failed > 0) overallStatus = 'FAILED';
+  else if (counts.pendingRepoAge > 0) overallStatus = 'PENDING_REPO_AGE';
+
+  return {
+    overallStatus,
+    counts,
+    results,
+  };
+}
+
+function parseCheckCliArgs(argv = []) {
+  const opts = {
+    writeState: false,
+    allowPendingAge: false,
+    jsonSummaryPath: '',
+    files: [],
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--write-state') {
+      opts.writeState = true;
+    } else if (arg === '--allow-pending-age') {
+      opts.allowPendingAge = true;
+    } else if (arg === '--json-summary' && i + 1 < argv.length) {
+      opts.jsonSummaryPath = argv[++i];
+    } else if (arg.startsWith('--json-summary=')) {
+      opts.jsonSummaryPath = arg.slice('--json-summary='.length);
+    } else if (!arg.startsWith('--')) {
+      opts.files.push(arg);
+    }
+  }
+  return opts;
+}
+
 if (import.meta.url === pathToFileURL(resolve(process.argv[1] || '')).href) {
-  const args = process.argv.slice(2);
-  const writeState = args.includes('--write-state');
-  const files = args.filter((a) => !a.startsWith('--'));
-  if (files.length === 0) {
-    console.log('Usage: node scripts/check-submission.mjs [--write-state] <data/plugins/owner__repo.yml...>');
+  const opts = parseCheckCliArgs(process.argv.slice(2));
+  if (opts.files.length === 0) {
+    console.log(
+      'Usage: node scripts/check-submission.mjs [--write-state] [--allow-pending-age] [--json-summary <path>] <data/plugins/owner__repo.yml...>',
+    );
     process.exit(0);
   }
-  for (const f of files) {
-    const res = await runLiveSubmissionCheck(resolve(f), { writeState });
-    console.log(JSON.stringify({ file: f, status: res.status, canonicalName: res.canonicalName, unlockAtUtc: res.unlockAtUtc || null, warnings: res.warnings }));
-    if (res.status === 'PENDING_REPO_AGE') {
-      process.exitCode = 78; // neutral/pending exit code for workflow_run handler
+
+  const results = [];
+  let hasFailure = false;
+  let hasPendingAge = false;
+
+  for (const f of opts.files) {
+    try {
+      const res = await runLiveSubmissionCheck(resolve(f), {
+        writeState: opts.writeState,
+        allowPendingAge: opts.allowPendingAge,
+      });
+      const entrySummary = {
+        file: f,
+        status: res.status,
+        canonicalName: res.canonicalName,
+        version: res.inspected?.version || null,
+        sha256: res.inspected?.sha256 || null,
+        badges: res.inspected?.capabilities?.badges || [],
+        hostEnhancementKind: res.inspected?.capabilities?.hostEnhancementKind || [],
+        unlockAtUtc: res.unlockAtUtc || null,
+        warnings: res.warnings || [],
+        error: null,
+      };
+      results.push(entrySummary);
+      console.log(JSON.stringify(entrySummary));
+      if (res.status === 'PENDING_REPO_AGE') {
+        hasPendingAge = true;
+      }
+    } catch (err) {
+      if (!opts.jsonSummaryPath) {
+        throw err;
+      }
+      hasFailure = true;
+      const errMsg = String(err?.message || err);
+      const entrySummary = {
+        file: f,
+        status: 'FAILED',
+        canonicalName: null,
+        version: null,
+        sha256: null,
+        badges: [],
+        hostEnhancementKind: [],
+        unlockAtUtc: null,
+        warnings: [],
+        error: errMsg,
+      };
+      results.push(entrySummary);
+      console.error(JSON.stringify(entrySummary));
     }
+  }
+
+  if (opts.jsonSummaryPath) {
+    const outPath = resolve(opts.jsonSummaryPath);
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, `${JSON.stringify(buildSubmissionSummaryPayload(results), null, 2)}\n`, 'utf8');
+  }
+
+  if (hasFailure) {
+    process.exitCode = 1;
+  } else if (hasPendingAge) {
+    process.exitCode = 78; // neutral/pending exit code for workflow_run handler
   }
 }

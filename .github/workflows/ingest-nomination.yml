@@ -2,7 +2,7 @@ name: Tier 0 — Community Plugin Nomination Ingestion
 
 on:
   issues:
-    types: [opened]
+    types: [opened, labeled]
 
 permissions:
   contents: write
@@ -14,7 +14,10 @@ concurrency:
 
 jobs:
   ingest-nomination:
-    if: ${{ contains(github.event.issue.labels.*.name, 'community-discovery') }}
+    if: >-
+      github.event.issue.state == 'open' &&
+      contains(github.event.issue.labels.*.name, 'community-discovery') &&
+      (github.event.action == 'opened' || github.event.label.name == 'community-discovery')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
